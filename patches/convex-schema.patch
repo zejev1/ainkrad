@@ -1,0 +1,11 @@
+--- a/convex/schema.ts
++++ b/convex/schema.ts
+@@
+ import { engineTables } from './engine/schema';
++import { cardinalTables } from './cardinal/schema';
+@@
+   ...agentTables,
+   ...aiTownTables,
+   ...engineTables,
++  ...cardinalTables,
+ });
