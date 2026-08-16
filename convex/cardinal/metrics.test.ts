@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { deriveWorldMetrics } from './metrics.js';
+import { deriveWorldMetrics } from './metrics';
 
 const now = 1_000_000_000;
 const npcs = [
