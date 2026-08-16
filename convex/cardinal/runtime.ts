@@ -1,4 +1,4 @@
-import { mutation, query } from '../_generated/server';
+import { internalMutation, internalQuery, mutation, query } from '../_generated/server';
 import { v } from 'convex/values';
 import { chooseCardinalInterventions, chooseYuiAction, WorldMetrics } from './core';
 import { deriveWorldMetrics } from './metrics';
@@ -173,5 +173,52 @@ export const evaluateYui = mutation({
       });
     }
     return action;
+  },
+});
+
+export const getConversationParticipants = internalQuery({
+  args: {
+    worldId: v.id('worlds'),
+    conversationId: v.string(),
+    playerId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const archived = await ctx.db
+      .query('archivedConversations')
+      .withIndex('worldId', (q) => q.eq('worldId', args.worldId).eq('id', args.conversationId as any))
+      .first();
+    if (!archived) return null;
+    const otherPlayerId = archived.participants.find((id: any) => id !== args.playerId);
+    return otherPlayerId ? { otherPlayerId } : null;
+  },
+});
+
+export const evaluateRunningWorlds = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const statuses = await ctx.db.query('worldStatus').collect();
+    const results: Array<{ worldId: string; interventions: number }> = [];
+    for (const status of statuses) {
+      if (status.status !== 'running') continue;
+      const worldId = status.worldId;
+      const npcs = await ctx.db
+        .query('cardinalNpcState')
+        .withIndex('world_profile', (q) => q.eq('worldId', worldId))
+        .collect();
+      if (!npcs.length) continue;
+      const relationships = await ctx.db
+        .query('cardinalRelationships')
+        .withIndex('from', (q) => q.eq('worldId', worldId))
+        .collect();
+      const events = await ctx.db
+        .query('cardinalEvents')
+        .withIndex('world_time', (q) => q.eq('worldId', worldId))
+        .collect();
+      const now = Date.now();
+      const metrics = deriveWorldMetrics(npcs, relationships, events, now);
+      const interventions = await persistDirectorEvaluation(ctx, worldId, metrics, now);
+      results.push({ worldId: String(worldId), interventions: interventions.length });
+    }
+    return results;
   },
 });
