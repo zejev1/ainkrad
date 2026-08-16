@@ -1,0 +1,82 @@
+name: Materialize Ainkrad v0.2
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/materialize-ainkrad.yml'
+      - 'convex/cardinal/**'
+      - 'data/cardinal*.ts'
+      - 'data/characters.ts'
+      - 'scripts/materialize_ainkrad.py'
+
+permissions:
+  contents: write
+
+jobs:
+  materialize:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Ainkrad overlay
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preserve authored overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/ainkrad-overlay/convex /tmp/ainkrad-overlay/data /tmp/ainkrad-overlay/scripts /tmp/ainkrad-overlay/patches
+          cp -a convex/cardinal /tmp/ainkrad-overlay/convex/cardinal
+          cp -a data/cardinal*.ts /tmp/ainkrad-overlay/data/
+          cp -a data/characters.ts /tmp/ainkrad-overlay/data/characters.ts
+          cp -a scripts/. /tmp/ainkrad-overlay/scripts/
+          if [ -d patches ]; then cp -a patches/. /tmp/ainkrad-overlay/patches/; fi
+          cp README.md /tmp/ainkrad-overlay/README.md
+
+      - name: Pull current upstream AI Town
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth=1 https://github.com/a16z-infra/ai-town.git /tmp/ai-town
+          rsync -a --exclude='.git/' /tmp/ai-town/ ./
+
+      - name: Restore Ainkrad layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf convex/cardinal
+          cp -a /tmp/ainkrad-overlay/convex/cardinal convex/cardinal
+          cp -a /tmp/ainkrad-overlay/data/cardinal*.ts data/
+          cp -a /tmp/ainkrad-overlay/data/characters.ts data/characters.ts
+          cp -a /tmp/ainkrad-overlay/scripts/. scripts/
+          mkdir -p patches
+          cp -a /tmp/ainkrad-overlay/patches/. patches/ || true
+          cp /tmp/ainkrad-overlay/README.md README.md
+
+      - name: Wire Cardinal into AI Town
+        run: python3 scripts/materialize_ainkrad.py
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: TypeScript build
+        run: npm run build
+
+      - name: Unit tests
+        run: npm test -- --runInBand
+
+      - name: Commit materialized runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Ainkrad Builder'
+          git config user.email 'actions@users.noreply.github.com'
+          git add -A
+          if git diff --cached --quiet; then
+            echo 'Nothing changed.'
+            exit 0
+          fi
+          git commit -m 'Ainkrad v0.2: materialize AI Town runtime [materialized]'
+          git push origin HEAD:main
