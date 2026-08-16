@@ -1,5 +1,5 @@
 import { strict as assert } from 'node:assert';
-import { chooseCardinalInterventions, chooseYuiAction } from './core.js';
+import { chooseCardinalInterventions, chooseYuiAction } from './core';
 
 const now = 1_000_000;
 assert.equal(
