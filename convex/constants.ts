@@ -38,7 +38,7 @@ export const AWKWARD_CONVERSATION_TIMEOUT = 60_000; // more time locally
 // export const AWKWARD_CONVERSATION_TIMEOUT = 20_000;
 
 // Leave a conversation after participating too long.
-export const MAX_CONVERSATION_DURATION = 10 * 60_000; // more time locally
+export const MAX_CONVERSATION_DURATION = 2 * 60_000; // more time locally
 // export const MAX_CONVERSATION_DURATION = 2 * 60_000;
 
 // Leave a conversation if it has more than 8 messages;
