@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { Component, ReactNode, useEffect, useRef, useState } from 'react';
 import PixiGame from './PixiGame.tsx';
 
 import { useElementSize } from 'usehooks-ts';
@@ -13,6 +13,50 @@ import { GameId } from '../../convex/aiTown/ids.ts';
 import { useServerGame } from '../hooks/serverGame.ts';
 
 export const SHOW_DEBUG_UI = !!import.meta.env.VITE_SHOW_DEBUG_UI;
+
+class NpcPanelErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; message: string | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = {
+      hasError: false,
+      message: null,
+    };
+  }
+
+  static getDerivedStateFromError(error: unknown) {
+    return {
+      hasError: true,
+      message: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  componentDidCatch(error: unknown, info: unknown) {
+    console.error('NPC panel crashed', error, info);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="p-4 text-white bg-black/70 font-mono text-sm">
+          <div className="text-xl mb-2">NPC panel error</div>
+
+          <div className="text-red-400 break-words">
+            {this.state.message ?? 'Unknown error'}
+          </div>
+
+          <div className="mt-3 text-gray-300">
+            The town is still running. Reload the page to reset this panel.
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 
 export default function Game() {
   const convex = useConvex();
@@ -144,14 +188,16 @@ export default function Game() {
           className="flex flex-col overflow-y-auto shrink-0 px-4 py-6 sm:px-6 lg:w-96 xl:pr-6 border-t-8 sm:border-t-0 sm:border-l-8 border-brown-900 bg-brown-800 text-brown-100"
           ref={scrollViewRef}
         >
-          <PlayerDetails
-            worldId={worldId}
-            engineId={engineId}
-            game={game}
-            playerId={selectedElement?.id}
-            setSelectedElement={setSelectedElement}
-            scrollViewRef={scrollViewRef}
-          />
+          <NpcPanelErrorBoundary>
+            <PlayerDetails
+              worldId={worldId}
+              engineId={engineId}
+              game={game}
+              playerId={selectedElement?.id}
+              setSelectedElement={setSelectedElement}
+              scrollViewRef={scrollViewRef}
+            />
+          </NpcPanelErrorBoundary>
         </div>
       </div>
     </>
