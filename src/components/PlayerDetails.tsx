@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '../../convex/_generated/api';
 import { Id } from '../../convex/_generated/dataModel';
@@ -6,7 +7,6 @@ import { SelectElement } from './Player';
 import { Messages } from './Messages';
 import { toastOnError } from '../toasts';
 import { useSendInput } from '../hooks/sendInput';
-import { Player } from '../../convex/aiTown/player';
 import { GameId } from '../../convex/aiTown/ids';
 import { ServerGame } from '../hooks/serverGame';
 
@@ -27,77 +27,213 @@ export default function PlayerDetails({
 }) {
   const humanTokenIdentifier = useQuery(api.world.userStatus, { worldId });
 
+  const [waitingForTurn, setWaitingForTurn] = useState(false);
+
   const players = [...game.world.players.values()];
-  const humanPlayer = players.find((p) => p.human === humanTokenIdentifier);
-  const humanConversation = humanPlayer ? game.world.playerConversation(humanPlayer) : undefined;
-  // Always select the other player if we're in a conversation with them.
+  const humanPlayer = players.find(
+    (p) => p.human === humanTokenIdentifier,
+  );
+
+  const humanConversation = humanPlayer
+    ? game.world.playerConversation(humanPlayer)
+    : undefined;
+
+  // Если человек уже разговаривает, показываем собеседника.
   if (humanPlayer && humanConversation) {
     const otherPlayerIds = [...humanConversation.participants.keys()].filter(
       (p) => p !== humanPlayer.id,
     );
-    playerId = otherPlayerIds[0];
+
+    if (otherPlayerIds.length > 0) {
+      playerId = otherPlayerIds[0];
+    }
   }
 
-  const player = playerId && game.world.players.get(playerId);
-  const playerConversation = player && game.world.playerConversation(player);
+  const player =
+    playerId !== undefined
+      ? game.world.players.get(playerId)
+      : undefined;
+
+  const playerConversation = player
+    ? game.world.playerConversation(player)
+    : undefined;
 
   const previousConversation = useQuery(
     api.world.previousConversation,
     playerId ? { worldId, playerId } : 'skip',
   );
 
-  const playerDescription = playerId && game.playerDescriptions.get(playerId);
+  const playerDescription =
+    playerId !== undefined
+      ? game.playerDescriptions.get(playerId)
+      : undefined;
 
-  const startConversation = useSendInput(engineId, 'startConversation');
-  const acceptInvite = useSendInput(engineId, 'acceptInvite');
-  const rejectInvite = useSendInput(engineId, 'rejectInvite');
-  const leaveConversation = useSendInput(engineId, 'leaveConversation');
+  const startConversation = useSendInput(
+    engineId,
+    'startConversation',
+  );
+
+  const acceptInvite = useSendInput(
+    engineId,
+    'acceptInvite',
+  );
+
+  const rejectInvite = useSendInput(
+    engineId,
+    'rejectInvite',
+  );
+
+  const leaveConversation = useSendInput(
+    engineId,
+    'leaveConversation',
+  );
+
+  // Если мы "позвали после разговора", ждём,
+  // пока выбранный NPC освободится.
+  useEffect(() => {
+    if (
+      !waitingForTurn ||
+      !humanPlayer ||
+      !playerId
+    ) {
+      return;
+    }
+
+    // Если человек уже сам оказался в разговоре,
+    // очередь не запускаем.
+    if (humanConversation) {
+      return;
+    }
+
+    const targetPlayer = game.world.players.get(playerId);
+
+    if (!targetPlayer) {
+      setWaitingForTurn(false);
+      return;
+    }
+
+    const targetConversation =
+      game.world.playerConversation(targetPlayer);
+
+    // NPC пока занят.
+    if (targetConversation) {
+      return;
+    }
+
+    // NPC освободился — отправляем обычное приглашение.
+    setWaitingForTurn(false);
+
+    void toastOnError(
+      startConversation({
+        playerId: humanPlayer.id,
+        invitee: playerId,
+      }),
+    );
+  }, [
+    waitingForTurn,
+    humanPlayer,
+    humanConversation,
+    playerId,
+    game,
+    startConversation,
+  ]);
 
   if (!playerId) {
     return (
       <div className="h-full text-xl flex text-center items-center p-4">
-        Click on an agent on the map to see chat history.
+        Нажмите на жителя на карте, чтобы посмотреть информацию и историю разговоров.
       </div>
     );
   }
+
   if (!player) {
-    return null;
+    return (
+      <div className="h-full text-xl flex text-center items-center p-4">
+        Этот житель сейчас недоступен.
+      </div>
+    );
   }
-  const isMe = humanPlayer && player.id === humanPlayer.id;
-  const canInvite = !isMe && !playerConversation && humanPlayer && !humanConversation;
+
+  const isMe =
+    !!humanPlayer &&
+    player.id === humanPlayer.id;
+
   const sameConversation =
     !isMe &&
-    humanPlayer &&
-    humanConversation &&
-    playerConversation &&
+    !!humanPlayer &&
+    !!humanConversation &&
+    !!playerConversation &&
     humanConversation.id === playerConversation.id;
 
   const humanStatus =
-    humanPlayer && humanConversation && humanConversation.participants.get(humanPlayer.id)?.status;
-  const playerStatus = playerConversation && playerConversation.participants.get(playerId)?.status;
+    humanPlayer &&
+    humanConversation?.participants.get(humanPlayer.id)?.status;
 
-  const haveInvite = sameConversation && humanStatus?.kind === 'invited';
+  const playerStatus =
+    playerConversation?.participants.get(playerId)?.status;
+
+  const haveInvite =
+    sameConversation &&
+    humanStatus?.kind === 'invited';
+
   const waitingForAccept =
-    sameConversation && playerConversation.participants.get(playerId)?.status.kind === 'invited';
+    sameConversation &&
+    playerStatus?.kind === 'invited';
+
   const waitingForNearby =
-    sameConversation && playerStatus?.kind === 'walkingOver' && humanStatus?.kind === 'walkingOver';
+    sameConversation &&
+    playerStatus?.kind === 'walkingOver' &&
+    humanStatus?.kind === 'walkingOver';
 
   const inConversationWithMe =
     sameConversation &&
     playerStatus?.kind === 'participating' &&
     humanStatus?.kind === 'participating';
 
+  const canTalkNow =
+    !isMe &&
+    !!humanPlayer &&
+    !humanConversation &&
+    !playerConversation;
+
+  const canWaitForNpc =
+    !isMe &&
+    !!humanPlayer &&
+    !humanConversation &&
+    !!playerConversation;
+
   const onStartConversation = async () => {
     if (!humanPlayer || !playerId) {
       return;
     }
-    console.log(`Starting conversation`);
-    await toastOnError(startConversation({ playerId: humanPlayer.id, invitee: playerId }));
+
+    console.log('Обращение к NPC');
+
+    await toastOnError(
+      startConversation({
+        playerId: humanPlayer.id,
+        invitee: playerId,
+      }),
+    );
   };
+
+  const onWaitForNpc = () => {
+    setWaitingForTurn(true);
+  };
+
+  const onCancelWaiting = () => {
+    setWaitingForTurn(false);
+  };
+
   const onAcceptInvite = async () => {
-    if (!humanPlayer || !humanConversation || !playerId) {
+    if (
+      !humanPlayer ||
+      !humanConversation ||
+      !playerId
+    ) {
       return;
     }
+
     await toastOnError(
       acceptInvite({
         playerId: humanPlayer.id,
@@ -105,10 +241,15 @@ export default function PlayerDetails({
       }),
     );
   };
+
   const onRejectInvite = async () => {
-    if (!humanPlayer || !humanConversation) {
+    if (
+      !humanPlayer ||
+      !humanConversation
+    ) {
       return;
     }
+
     await toastOnError(
       rejectInvite({
         playerId: humanPlayer.id,
@@ -116,10 +257,16 @@ export default function PlayerDetails({
       }),
     );
   };
+
   const onLeaveConversation = async () => {
-    if (!humanPlayer || !inConversationWithMe || !humanConversation) {
+    if (
+      !humanPlayer ||
+      !inConversationWithMe ||
+      !humanConversation
+    ) {
       return;
     }
+
     await toastOnError(
       leaveConversation({
         playerId: humanPlayer.id,
@@ -127,137 +274,217 @@ export default function PlayerDetails({
       }),
     );
   };
-  // const pendingSuffix = (inputName: string) =>
-  //   [...inflightInputs.values()].find((i) => i.name === inputName) ? ' opacity-50' : '';
 
-  const pendingSuffix = (s: string) => '';
   return (
     <>
       <div className="flex gap-4">
         <div className="box w-3/4 sm:w-full mr-auto">
           <h2 className="bg-brown-700 p-2 font-display text-2xl sm:text-4xl tracking-wider shadow-solid text-center">
-            {playerDescription?.name}
+            {playerDescription?.name ?? 'Неизвестный житель'}
           </h2>
         </div>
+
         <a
           className="button text-white shadow-solid text-2xl cursor-pointer pointer-events-auto"
-          onClick={() => setSelectedElement(undefined)}
+          onClick={() => {
+            setWaitingForTurn(false);
+            setSelectedElement(undefined);
+          }}
         >
           <h2 className="h-full bg-clay-700">
-            <img className="w-4 h-4 sm:w-5 sm:h-5" src={closeImg} />
+            <img
+              className="w-4 h-4 sm:w-5 sm:h-5"
+              src={closeImg}
+              alt="Закрыть"
+            />
           </h2>
         </a>
       </div>
-      {canInvite && (
+
+      {!humanPlayer && !isMe && (
+        <div className="box flex-grow mt-6">
+          <h2 className="bg-brown-700 text-base sm:text-lg text-center p-2">
+            Чтобы взаимодействовать с жителями, сначала нажмите «Войти в мир».
+          </h2>
+        </div>
+      )}
+
+      {canTalkNow && !waitingForTurn && (
         <a
-          className={
-            'mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto' +
-            pendingSuffix('startConversation')
-          }
+          className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
           onClick={onStartConversation}
         >
           <div className="h-full bg-clay-700 text-center">
-            <span>Start conversation</span>
+            <span>Обратиться</span>
           </div>
         </a>
       )}
-      {waitingForAccept && (
-        <a className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto opacity-50">
-          <div className="h-full bg-clay-700 text-center">
-            <span>Waiting for accept...</span>
-          </div>
-        </a>
-      )}
-      {waitingForNearby && (
-        <a className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto opacity-50">
-          <div className="h-full bg-clay-700 text-center">
-            <span>Walking over...</span>
-          </div>
-        </a>
-      )}
-      {inConversationWithMe && (
-        <a
-          className={
-            'mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto' +
-            pendingSuffix('leaveConversation')
-          }
-          onClick={onLeaveConversation}
-        >
-          <div className="h-full bg-clay-700 text-center">
-            <span>Leave conversation</span>
-          </div>
-        </a>
-      )}
-      {haveInvite && (
+
+      {canWaitForNpc && !waitingForTurn && (
         <>
           <a
-            className={
-              'mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto' +
-              pendingSuffix('acceptInvite')
-            }
-            onClick={onAcceptInvite}
+            className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
+            onClick={onWaitForNpc}
           >
             <div className="h-full bg-clay-700 text-center">
-              <span>Accept</span>
+              <span>Позвать после разговора</span>
             </div>
           </a>
+
+          <div className="box flex-grow mt-3">
+            <h2 className="bg-brown-700 text-sm sm:text-base text-center p-2">
+              Сейчас этот житель занят разговором. Мы не будем прерывать его беседу.
+            </h2>
+          </div>
+        </>
+      )}
+
+      {waitingForTurn && (
+        <>
+          <div className="box flex-grow mt-6">
+            <h2 className="bg-brown-700 text-base sm:text-lg text-center p-2">
+              Ждём, пока {playerDescription?.name ?? 'житель'} освободится…
+            </h2>
+          </div>
+
           <a
-            className={
-              'mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto' +
-              pendingSuffix('rejectInvite')
-            }
-            onClick={onRejectInvite}
+            className="mt-3 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
+            onClick={onCancelWaiting}
           >
             <div className="h-full bg-clay-700 text-center">
-              <span>Reject</span>
+              <span>Отменить ожидание</span>
             </div>
           </a>
         </>
       )}
-      {!playerConversation && player.activity && player.activity.until > Date.now() && (
-        <div className="box flex-grow mt-6">
-          <h2 className="bg-brown-700 text-base sm:text-lg text-center">
-            {player.activity.description}
-          </h2>
+
+      {!!humanConversation &&
+        !sameConversation &&
+        !isMe && (
+          <div className="box flex-grow mt-6">
+            <h2 className="bg-brown-700 text-base sm:text-lg text-center p-2">
+              Сначала завершите свой текущий разговор.
+            </h2>
+          </div>
+        )}
+
+      {waitingForAccept && (
+        <div className="mt-6 button text-white shadow-solid text-xl opacity-50">
+          <div className="h-full bg-clay-700 text-center">
+            <span>Ждём ответа…</span>
+          </div>
         </div>
       )}
+
+      {waitingForNearby && (
+        <div className="mt-6 button text-white shadow-solid text-xl opacity-50">
+          <div className="h-full bg-clay-700 text-center">
+            <span>Подходим друг к другу…</span>
+          </div>
+        </div>
+      )}
+
+      {inConversationWithMe && (
+        <a
+          className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
+          onClick={onLeaveConversation}
+        >
+          <div className="h-full bg-clay-700 text-center">
+            <span>Завершить разговор</span>
+          </div>
+        </a>
+      )}
+
+      {haveInvite && (
+        <>
+          <a
+            className="mt-6 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
+            onClick={onAcceptInvite}
+          >
+            <div className="h-full bg-clay-700 text-center">
+              <span>Принять приглашение</span>
+            </div>
+          </a>
+
+          <a
+            className="mt-3 button text-white shadow-solid text-xl cursor-pointer pointer-events-auto"
+            onClick={onRejectInvite}
+          >
+            <div className="h-full bg-clay-700 text-center">
+              <span>Отказаться</span>
+            </div>
+          </a>
+        </>
+      )}
+
+      {!playerConversation &&
+        player.activity &&
+        player.activity.until > Date.now() && (
+          <div className="box flex-grow mt-6">
+            <h2 className="bg-brown-700 text-base sm:text-lg text-center">
+              {player.activity.description}
+            </h2>
+          </div>
+        )}
+
       <div className="desc my-6">
         <p className="leading-tight -m-4 bg-brown-700 text-base sm:text-sm">
           {!isMe && playerDescription?.description}
-          {isMe && <i>This is you!</i>}
+
+          {isMe && (
+            <i>Это ваш персонаж.</i>
+          )}
+
           {!isMe && inConversationWithMe && (
             <>
               <br />
-              <br />(<i>Conversing with you!</i>)
+              <br />
+              <i>Сейчас разговаривает с вами.</i>
             </>
           )}
         </p>
       </div>
-      {!isMe && playerConversation && playerStatus?.kind === 'participating' && (
-        <Messages
-          worldId={worldId}
-          engineId={engineId}
-          inConversationWithMe={inConversationWithMe ?? false}
-          conversation={{ kind: 'active', doc: playerConversation }}
-          humanPlayer={humanPlayer}
-          scrollViewRef={scrollViewRef}
-        />
-      )}
-      {!playerConversation && previousConversation && (
-        <>
-          <div className="box flex-grow">
-            <h2 className="bg-brown-700 text-lg text-center">Previous conversation</h2>
-          </div>
+
+      {!isMe &&
+        playerConversation &&
+        playerStatus?.kind === 'participating' && (
           <Messages
             worldId={worldId}
             engineId={engineId}
-            inConversationWithMe={false}
-            conversation={{ kind: 'archived', doc: previousConversation }}
+            inConversationWithMe={
+              inConversationWithMe ?? false
+            }
+            conversation={{
+              kind: 'active',
+              doc: playerConversation,
+            }}
             humanPlayer={humanPlayer}
             scrollViewRef={scrollViewRef}
           />
-        </>
-      )}
+        )}
+
+      {!playerConversation &&
+        previousConversation && (
+          <>
+            <div className="box flex-grow">
+              <h2 className="bg-brown-700 text-lg text-center">
+                Предыдущий разговор
+              </h2>
+            </div>
+
+            <Messages
+              worldId={worldId}
+              engineId={engineId}
+              inConversationWithMe={false}
+              conversation={{
+                kind: 'archived',
+                doc: previousConversation,
+              }}
+              humanPlayer={humanPlayer}
+              scrollViewRef={scrollViewRef}
+            />
+          </>
+        )}
     </>
   );
 }
