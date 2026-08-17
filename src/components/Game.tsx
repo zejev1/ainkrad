@@ -1,9 +1,9 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import PixiGame from './PixiGame.tsx';
 
 import { useElementSize } from 'usehooks-ts';
 import { Stage } from '@pixi/react';
-import { ConvexProvider, useConvex, useQuery } from 'convex/react';
+import { ConvexProvider, useConvex, useMutation, useQuery } from 'convex/react';
 import PlayerDetails from './PlayerDetails.tsx';
 import { api } from '../../convex/_generated/api';
 import { useWorldHeartbeat } from '../hooks/useWorldHeartbeat.ts';
@@ -16,19 +16,42 @@ export const SHOW_DEBUG_UI = !!import.meta.env.VITE_SHOW_DEBUG_UI;
 
 export default function Game() {
   const convex = useConvex();
+
   const [selectedElement, setSelectedElement] = useState<{
     kind: 'player';
     id: GameId<'players'>;
   }>();
+
   const [gameWrapperRef, { width, height }] = useElementSize();
 
   const worldStatus = useQuery(api.world.defaultWorldStatus);
+  const initWorld = useMutation(api.init.default);
+
+  const [initStarted, setInitStarted] = useState(false);
+  const [initError, setInitError] = useState<string | null>(null);
+
   const worldId = worldStatus?.worldId;
   const engineId = worldStatus?.engineId;
 
   const game = useServerGame(worldId);
 
-  // Send a periodic heartbeat to our world to keep it alive.
+  useEffect(() => {
+    if (worldStatus !== null || initStarted) {
+      return;
+    }
+
+    setInitStarted(true);
+
+    initWorld({})
+      .then(() => {
+        console.log('Ainkrad world initialized');
+      })
+      .catch((error) => {
+        console.error('Failed to initialize Ainkrad world', error);
+        setInitError(error instanceof Error ? error.message : String(error));
+      });
+  }, [worldStatus, initStarted, initWorld]);
+
   useWorldHeartbeat();
 
   const worldState = useQuery(api.world.worldState, worldId ? { worldId } : 'skip');
@@ -37,19 +60,54 @@ export default function Game() {
   const scrollViewRef = useRef<HTMLDivElement>(null);
 
   if (!worldId || !engineId || !game) {
-    return null;
+    return (
+      <div className="mx-auto my-6 w-full max-w-2xl bg-black/70 text-white p-4 font-mono text-sm">
+        <div className="text-xl mb-3">Connecting to Ainkrad...</div>
+
+        <div>World: {worldId ? '✓' : '…'}</div>
+        <div>Engine: {engineId ? '✓' : '…'}</div>
+        <div>Game: {game ? '✓' : '…'}</div>
+
+        {worldStatus === undefined && (
+          <div className="mt-3 text-yellow-300">Checking Convex...</div>
+        )}
+
+        {worldStatus === null && !initError && (
+          <div className="mt-3 text-yellow-300">Creating world and NPCs...</div>
+        )}
+
+        {initError && (
+          <div className="mt-3 text-red-400">
+            Init error: {initError}
+          </div>
+        )}
+      </div>
+    );
   }
+
   return (
     <>
-      {SHOW_DEBUG_UI && <DebugTimeManager timeManager={timeManager} width={200} height={100} />}
+      {SHOW_DEBUG_UI && (
+        <DebugTimeManager
+          timeManager={timeManager}
+          width={200}
+          height={100}
+        />
+      )}
+
       <div className="mx-auto w-full max-w grid grid-rows-[240px_1fr] lg:grid-rows-[1fr] lg:grid-cols-[1fr_auto] lg:grow max-w-[1400px] min-h-[480px] game-frame">
-        {/* Game area */}
-        <div className="relative overflow-hidden bg-brown-900" ref={gameWrapperRef}>
+
+        <div
+          className="relative overflow-hidden bg-brown-900"
+          ref={gameWrapperRef}
+        >
           <div className="absolute inset-0">
             <div className="container">
-              <Stage width={width} height={height} options={{ backgroundColor: 0x7ab5ff }}>
-                {/* Re-propagate context because contexts are not shared between renderers.
-https://github.com/michalochman/react-pixi-fiber/issues/145#issuecomment-531549215 */}
+              <Stage
+                width={width}
+                height={height}
+                options={{ backgroundColor: 0x7ab5ff }}
+              >
                 <ConvexProvider client={convex}>
                   <PixiGame
                     game={game}
@@ -65,9 +123,9 @@ https://github.com/michalochman/react-pixi-fiber/issues/145#issuecomment-5315492
             </div>
           </div>
         </div>
-        {/* Right column area */}
+
         <div
-          className="flex flex-col overflow-y-auto shrink-0 px-4 py-6 sm:px-6 lg:w-96 xl:pr-6 border-t-8 sm:border-t-0 sm:border-l-8 border-brown-900  bg-brown-800 text-brown-100"
+          className="flex flex-col overflow-y-auto shrink-0 px-4 py-6 sm:px-6 lg:w-96 xl:pr-6 border-t-8 sm:border-t-0 sm:border-l-8 border-brown-900 bg-brown-800 text-brown-100"
           ref={scrollViewRef}
         >
           <PlayerDetails
