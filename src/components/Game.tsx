@@ -24,6 +24,9 @@ export default function Game() {
 
   const [gameWrapperRef, { width, height }] = useElementSize();
 
+  const safeWidth = Math.max(width || 0, 320);
+  const safeHeight = Math.max(height || 0, 240);
+
   const worldStatus = useQuery(api.world.defaultWorldStatus);
   const initWorld = useMutation(api.init.default);
 
@@ -54,8 +57,14 @@ export default function Game() {
 
   useWorldHeartbeat();
 
-  const worldState = useQuery(api.world.worldState, worldId ? { worldId } : 'skip');
-  const { historicalTime, timeManager } = useHistoricalTime(worldState?.engine);
+  const worldState = useQuery(
+    api.world.worldState,
+    worldId ? { worldId } : 'skip',
+  );
+
+  const { historicalTime, timeManager } = useHistoricalTime(
+    worldState?.engine,
+  );
 
   const scrollViewRef = useRef<HTMLDivElement>(null);
 
@@ -69,11 +78,15 @@ export default function Game() {
         <div>Game: {game ? '✓' : '…'}</div>
 
         {worldStatus === undefined && (
-          <div className="mt-3 text-yellow-300">Checking Convex...</div>
+          <div className="mt-3 text-yellow-300">
+            Checking Convex...
+          </div>
         )}
 
         {worldStatus === null && !initError && (
-          <div className="mt-3 text-yellow-300">Creating world and NPCs...</div>
+          <div className="mt-3 text-yellow-300">
+            Creating world and NPCs...
+          </div>
         )}
 
         {initError && (
@@ -96,25 +109,28 @@ export default function Game() {
       )}
 
       <div className="mx-auto w-full max-w grid grid-rows-[240px_1fr] lg:grid-rows-[1fr] lg:grid-cols-[1fr_auto] lg:grow max-w-[1400px] min-h-[480px] game-frame">
-
         <div
-          className="relative overflow-hidden bg-brown-900"
+          className="relative overflow-hidden bg-brown-900 min-h-[240px]"
           ref={gameWrapperRef}
         >
           <div className="absolute inset-0">
             <div className="container">
               <Stage
-                width={width}
-                height={height}
-                options={{ backgroundColor: 0x7ab5ff }}
+                width={safeWidth}
+                height={safeHeight}
+                options={{
+                  backgroundColor: 0x7ab5ff,
+                  antialias: false,
+                  autoDensity: true,
+                }}
               >
                 <ConvexProvider client={convex}>
                   <PixiGame
                     game={game}
                     worldId={worldId}
                     engineId={engineId}
-                    width={width}
-                    height={height}
+                    width={safeWidth}
+                    height={safeHeight}
                     historicalTime={historicalTime}
                     setSelectedElement={setSelectedElement}
                   />
