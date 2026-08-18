@@ -101,6 +101,19 @@ export default function Game() {
         setInitError(error instanceof Error ? error.message : String(error));
       });
   }, [worldStatus, initStarted, initWorld]);
+  useEffect(() => {
+  if (!worldId) {
+    return;
+  }
+
+  seedSettlement({})
+    .then((result) => {
+      console.log('Settlement seed result:', result);
+    })
+    .catch((error) => {
+      console.error('Failed to seed settlement', error);
+    });
+}, [worldId, seedSettlement]);
 
   useWorldHeartbeat();
 
