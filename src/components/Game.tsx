@@ -73,6 +73,9 @@ export default function Game() {
 
   const worldStatus = useQuery(api.world.defaultWorldStatus);
   const initWorld = useMutation(api.init.default);
+  const seedSettlement = useMutation(
+  (api as any).seedSettlement.seedDefaultSettlement,
+);
 
   const [initStarted, setInitStarted] = useState(false);
   const [initError, setInitError] = useState<string | null>(null);
