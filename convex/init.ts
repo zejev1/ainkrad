@@ -64,7 +64,7 @@ const init = mutation({
 
     await ctx.scheduler.runAfter(
       0,
-      (api as any).world.seed.seedStarterSettlement,
+      (api as any).seedSettlement.seedStarterSettlement,
       {
         worldId: worldStatus.worldId,
       },
