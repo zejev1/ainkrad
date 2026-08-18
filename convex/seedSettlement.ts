@@ -1,5 +1,9 @@
-import { mutation } from './_generated/server';
+import {
+  mutation,
+  MutationCtx,
+} from './_generated/server';
 import { v } from 'convex/values';
+import { Id } from './_generated/dataModel';
 
 const STARTER_BUILDINGS = [
   {
@@ -67,32 +71,33 @@ const STARTER_BUILDINGS = [
   },
 ];
 
-export const seedStarterSettlement = mutation({
-  args: {
-    worldId: v.id('worlds'),
-  },
+async function createSettlement(
+  ctx: MutationCtx,
+  worldId: Id<'worlds'>,
+) {
+  const existing = await ctx.db
+    .query('buildings')
+    .withIndex('worldId', (q) =>
+      q.eq('worldId', worldId),
+    )
+    .first();
 
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query('buildings')
-      .withIndex('worldId', (q) =>
-        q.eq('worldId', args.worldId),
-      )
-      .first();
+  if (existing) {
+    return {
+      created: false,
+      reason: 'already_exists',
+      worldId,
+    };
+  }
 
-    if (existing) {
-      return {
-        created: false,
-      };
-    }
+  const now = Date.now();
 
-    const now = Date.now();
-
-    for (const building of STARTER_BUILDINGS) {
-      const buildingId = await ctx.db.insert(
+  for (const building of STARTER_BUILDINGS) {
+    const buildingId =
+      await ctx.db.insert(
         'buildings',
         {
-          worldId: args.worldId,
+          worldId,
           kind: building.kind,
           name: building.name,
           position: building.position,
@@ -108,44 +113,87 @@ export const seedStarterSettlement = mutation({
         },
       );
 
-      await ctx.db.insert(
-        'buildingInventories',
-        {
-          worldId: args.worldId,
-          buildingId,
+    await ctx.db.insert(
+      'buildingInventories',
+      {
+        worldId,
+        buildingId,
 
-          food:
-            building.kind === 'farm'
-              ? 20
-              : 0,
+        food:
+          building.kind === 'farm'
+            ? 20
+            : 0,
 
-          wood:
-            building.kind === 'warehouse'
-              ? 20
-              : 0,
+        wood:
+          building.kind === 'warehouse'
+            ? 20
+            : 0,
 
-          stone:
-            building.kind === 'warehouse'
-              ? 10
-              : 0,
+        stone:
+          building.kind === 'warehouse'
+            ? 10
+            : 0,
 
-          goods:
-            building.kind === 'workshop'
-              ? 5
-              : 0,
+        goods:
+          building.kind === 'workshop'
+            ? 5
+            : 0,
 
-          money:
-            building.kind === 'market'
-              ? 100
-              : 0,
+        money:
+          building.kind === 'market'
+            ? 100
+            : 0,
 
-          updatedAt: now,
-        },
+        updatedAt: now,
+      },
+    );
+  }
+
+  return {
+    created: true,
+    worldId,
+    buildingsCreated:
+      STARTER_BUILDINGS.length,
+  };
+}
+
+export const seedStarterSettlement = mutation({
+  args: {
+    worldId: v.id('worlds'),
+  },
+
+  handler: async (ctx, args) => {
+    return await createSettlement(
+      ctx,
+      args.worldId,
+    );
+  },
+});
+
+export const seedDefaultSettlement = mutation({
+  args: {},
+
+  handler: async (ctx) => {
+    const worldStatus =
+      await ctx.db
+        .query('worldStatus')
+        .filter((q) =>
+          q.eq(
+            q.field('isDefault'),
+            true,
+          ),
+        )
+        .unique();
+
+    if (!worldStatus) {
+      throw new Error(
+        'Default world not found',
       );
     }
 
-    return {
-      created: true,
-    };
+    return await createSettlement(
+      ctx,
+      worldStatus.worldId,
+    );
   },
 });
