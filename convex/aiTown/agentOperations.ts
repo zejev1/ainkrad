@@ -293,7 +293,7 @@ export const agentDoSomething = internalAction({
     }
 
     // 25% — социальное действие
-    let invitee = undefined;
+    let invitee: GameId<'players'> | undefined = undefined;
 
     if (
       args.otherFreePlayers.length >
