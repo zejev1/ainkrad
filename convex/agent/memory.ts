@@ -352,7 +352,7 @@ async function reflectOnMemories(
   const sumOfImportanceScore = memories
     .filter((m) => m._creationTime > (lastReflectionTs ?? 0))
     .reduce((acc, curr) => acc + curr.importance, 0);
-  const shouldReflect = sumOfImportanceScore > 500;
+  const shouldReflect = sumOfImportanceScore > 25;
 
   if (!shouldReflect) {
     return false;
