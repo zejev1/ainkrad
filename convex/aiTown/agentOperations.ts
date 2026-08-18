@@ -14,6 +14,7 @@ import {
   ACTIVITIES,
   ACTIVITY_COOLDOWN,
   CONVERSATION_COOLDOWN,
+  INVITE_ACCEPT_PROBABILITY,
 } from '../constants';
 import { api, internal } from '../_generated/api';
 import { sleep } from '../util/sleep';
@@ -37,7 +38,6 @@ export const agentRememberConversation = internalAction({
       args.conversationId as GameId<'conversations'>,
     );
 
-    // Передаём завершившийся разговор Cardinal.
     try {
       const participants = await ctx.runQuery(
         (internal as any).cardinal.runtime.getConversationParticipants,
@@ -71,6 +71,7 @@ export const agentRememberConversation = internalAction({
     await ctx.runMutation(api.aiTown.main.sendInput, {
       worldId: args.worldId,
       name: 'finishRememberConversation',
+
       args: {
         agentId: args.agentId,
         operationId: args.operationId,
@@ -134,12 +135,7 @@ export const agentGenerateMessage = internalAction({
         playerId: args.playerId,
         text,
         messageUuid: args.messageUuid,
-
-        // Оставляем поддержку старого механизма,
-        // хотя теперь agent.ts умеет жёстко
-        // завершать слишком долгие разговоры.
         leaveConversation: args.type === 'leave',
-
         operationId: args.operationId,
       },
     );
@@ -181,10 +177,6 @@ export const agentDoSomething = internalAction({
         player.activity.until +
           ACTIVITY_COOLDOWN;
 
-    // =====================================================
-    // 1. ПОСЛЕ РАЗГОВОРА NPC ОБЯЗАТЕЛЬНО РАСХОДИТСЯ
-    // =====================================================
-
     if (justLeftConversation) {
       await finishWithDestination(
         ctx,
@@ -194,12 +186,6 @@ export const agentDoSomething = internalAction({
 
       return;
     }
-
-    // =====================================================
-    // 2. ЕСЛИ НЕДАВНО ПЫТАЛСЯ КОГО-ТО ПОЗВАТЬ,
-    //    НЕ ПРИЛИПАЕМ СРАЗУ К ДРУГОМУ NPC.
-    //    ИДЁМ ГУЛЯТЬ.
-    // =====================================================
 
     if (recentlyAttemptedInvite) {
       await finishWithDestination(
@@ -211,11 +197,6 @@ export const agentDoSomething = internalAction({
       return;
     }
 
-    // =====================================================
-    // 3. ЕСЛИ ТОЛЬКО ЧТО ЗАКОНЧИЛ АКТИВНОСТЬ —
-    //    ТОЖЕ НЕМНОГО ПРОГУЛЯТЬСЯ.
-    // =====================================================
-
     if (recentActivity) {
       await finishWithDestination(
         ctx,
@@ -226,13 +207,6 @@ export const agentDoSomething = internalAction({
       return;
     }
 
-    // =====================================================
-    // 4. ЕСЛИ NPC УЖЕ КУДА-ТО ИДЁТ —
-    //    НЕ МЕШАЕМ ДВИЖЕНИЮ.
-    //
-    // agent.ts снова вызовет нас после завершения пути.
-    // =====================================================
-
     if (player.pathfinding) {
       await finishWithoutAction(
         ctx,
@@ -242,22 +216,9 @@ export const agentDoSomething = internalAction({
       return;
     }
 
-    // =====================================================
-    // 5. ОБЫЧНЫЙ ВЫБОР ПОВЕДЕНИЯ
-    //
-    // 45% — прогулка
-    // 30% — деятельность
-    // 25% — социальное действие
-    //
-    // Это специально делает город менее "липким".
-    // =====================================================
-
     const roll = Math.random();
 
-    // -----------------------------------------------------
-    // ПРОГУЛКА
-    // -----------------------------------------------------
-
+    // 45% — прогулка
     if (roll < 0.45) {
       await finishWithDestination(
         ctx,
@@ -268,10 +229,7 @@ export const agentDoSomething = internalAction({
       return;
     }
 
-    // -----------------------------------------------------
-    // ДЕЯТЕЛЬНОСТЬ
-    // -----------------------------------------------------
-
+    // 30% — деятельность
     if (roll < 0.75) {
       let cardinalActivity = null;
 
@@ -334,10 +292,7 @@ export const agentDoSomething = internalAction({
       return;
     }
 
-    // =====================================================
-    // 6. СОЦИАЛЬНОЕ ДЕЙСТВИЕ
-    // =====================================================
-
+    // 25% — социальное действие
     let invitee = undefined;
 
     if (
@@ -362,8 +317,6 @@ export const agentDoSomething = internalAction({
       );
     }
 
-    // Если подходящего собеседника нет —
-    // NPC не стоит столбом, а идёт гулять.
     if (!invitee) {
       await finishWithDestination(
         ctx,
@@ -374,6 +327,85 @@ export const agentDoSomething = internalAction({
       return;
     }
 
+    const inviteePlayer =
+      args.otherFreePlayers.find(
+        (p) => p.id === invitee,
+      );
+
+    // Людей не фильтруем отношениями NPC.
+    if (
+      inviteePlayer &&
+      !inviteePlayer.human
+    ) {
+      const relationship =
+        await ctx.runQuery(
+          internal.agent.memory
+            .getRelationshipWithPlayer,
+          {
+            playerId:
+              invitee as GameId<'players'>,
+
+            otherPlayerId:
+              player.id as GameId<'players'>,
+          },
+        );
+
+      let acceptanceProbability =
+        INVITE_ACCEPT_PROBABILITY;
+
+      if (
+        relationship &&
+        relationship.data.type ===
+          'relationship'
+      ) {
+        const {
+          trust,
+          affinity,
+          respect,
+          conflict,
+        } = relationship.data;
+
+        acceptanceProbability +=
+          affinity * 0.003;
+
+        acceptanceProbability +=
+          trust * 0.002;
+
+        acceptanceProbability +=
+          respect * 0.001;
+
+        acceptanceProbability -=
+          conflict * 0.004;
+
+        acceptanceProbability =
+          Math.max(
+            0.08,
+            Math.min(
+              0.95,
+              acceptanceProbability,
+            ),
+          );
+      }
+
+      const accepted =
+        Math.random() <
+        acceptanceProbability;
+
+      if (!accepted) {
+        console.log(
+          `Agent ${invitee} would reject invite from ${player.id}.`,
+        );
+
+        await finishWithDestination(
+          ctx,
+          args,
+          wanderDestination(map),
+        );
+
+        return;
+      }
+    }
+
     await sleep(
       Math.random() * 1000,
     );
@@ -382,7 +414,6 @@ export const agentDoSomething = internalAction({
       api.aiTown.main.sendInput,
       {
         worldId: args.worldId,
-
         name: 'finishDoSomething',
 
         args: {
@@ -398,10 +429,6 @@ export const agentDoSomething = internalAction({
     );
   },
 });
-
-// =========================================================
-// ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ
-// =========================================================
 
 async function finishWithDestination(
   ctx: any,
@@ -464,7 +491,6 @@ async function finishWithoutAction(
 function wanderDestination(
   worldMap: WorldMap,
 ) {
-  // Не отправляем NPC прямо к краю карты.
   const margin = 2;
 
   const usableWidth =
