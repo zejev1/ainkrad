@@ -215,7 +215,33 @@ export const agentDoSomething = internalAction({
 
       return;
     }
+let routineTarget = null;
 
+try {
+  routineTarget = await ctx.runQuery(
+    (api as any).cityRoutine.getRoutineTarget,
+    {
+      worldId: args.worldId,
+      playerId: player.id,
+      now,
+    },
+  );
+} catch (error) {
+  console.warn(
+    'City routine unavailable; falling back to default AI Town behavior.',
+    error,
+  );
+}
+
+if (routineTarget) {
+  await finishWithDestination(
+    ctx,
+    args,
+    routineTarget.destination,
+  );
+
+  return;
+}
     const roll = Math.random();
 
     // 45% — прогулка
