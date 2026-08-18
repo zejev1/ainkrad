@@ -405,3 +405,5 @@ Now we have to test whether that answer is actually correct.
 «Cardinal does not build the world for its inhabitants.
 
 Cardinal helps the world preserve its ability to build itself.»
+
+.
