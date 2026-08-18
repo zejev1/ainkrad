@@ -72,6 +72,9 @@ export default function Game() {
   const safeHeight = Math.max(height || 0, 240);
 
   const worldStatus = useQuery(api.world.defaultWorldStatus);
+  const llmStatus = useQuery(
+  (api as any).llmStatus.getLlmStatus,
+);
   const initWorld = useMutation(api.init.default);
   const seedSettlement = useMutation(
   (api as any).seedSettlement.seedDefaultSettlement,
@@ -160,6 +163,19 @@ export default function Game() {
 
   return (
     <>
+    return (
+  <>
+    <div className="bg-black text-white px-3 py-2 text-xs font-mono">
+      LLM: {llmStatus?.provider ?? 'checking...'}
+      {' | '}
+      OpenAI: {llmStatus?.hasOpenAIKey ? 'YES' : 'NO'}
+      {' | '}
+      Custom: {llmStatus?.hasCustomUrl ? 'YES' : 'NO'}
+      {' | '}
+      Ollama: {llmStatus?.ollamaHost ?? 'unknown'}
+    </div>
+
+    {SHOW_DEBUG_UI && (  
       {SHOW_DEBUG_UI && (
         <DebugTimeManager
           timeManager={timeManager}
