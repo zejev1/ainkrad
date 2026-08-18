@@ -126,12 +126,12 @@ export const PixiGame = (props: {
   const viewportRef = useRef<Viewport | undefined>();
 
   const buildings =
-    useQuery(
-      api.buildings.listBuildings,
-      {
-        worldId: props.worldId,
-      },
-    ) ?? [];
+  useQuery(
+    (api as any).buildings.listBuildings,
+    {
+      worldId: props.worldId,
+    },
+  ) ?? [];
 
   const humanTokenIdentifier =
     useQuery(
