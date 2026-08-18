@@ -24,6 +24,7 @@ const init = mutation({
     const {
       worldStatus,
       engine,
+      createdWorld,
     } = await getOrCreateDefaultWorld(ctx);
 
     if (worldStatus.status !== 'running') {
@@ -34,28 +35,17 @@ const init = mutation({
       return;
     }
 
-    // =====================================================
-    // 1. STARTER SETTLEMENT
-    // =====================================================
-    //
-    // Создаём логические здания:
-    // дома, ферму, мастерскую, рынок и склад.
-    //
-    // Seed идемпотентный — повторно здания
-    // не создаются.
-    // =====================================================
-
-    await ctx.scheduler.runAfter(
-      0,
-      (api as any).world.seed.seedStarterSettlement,
-      {
-        worldId: worldStatus.worldId,
-      },
-    );
-
-    // =====================================================
-    // 2. NPC
-    // =====================================================
+    // Создаём стартовое поселение только
+    // как часть первоначальной инициализации мира.
+    if (createdWorld) {
+      await ctx.scheduler.runAfter(
+        0,
+        (api as any).world.seed.seedStarterSettlement,
+        {
+          worldId: worldStatus.worldId,
+        },
+      );
+    }
 
     const shouldCreate =
       await shouldCreateAgents(
@@ -86,50 +76,23 @@ const init = mutation({
           },
         );
       }
+
+      // Только если NPC реально создаются впервые,
+      // запускаем их первоначальное заселение.
+      await ctx.scheduler.runAfter(
+        7000,
+        (api as any).world.population.assignPopulation,
+        {
+          worldId: worldStatus.worldId,
+        },
+      );
     }
 
-    // =====================================================
-    // 3. POPULATION
-    // =====================================================
+    // Если мир уже существовал и NPC уже были,
+    // мы ничего не пересоздаём и не переназначаем.
     //
-    // Даём игровому движку немного времени,
-    // чтобы queued createAgent превратились
-    // в реальных игроков world.players.
-    //
-    // Затем автоматически:
-    //
-    // - распределяем NPC по домам;
-    // - назначаем рабочие места;
-    // - создаём потребности;
-    // - создаём личные инвентари.
-    //
-    // assignPopulation тоже безопасно
-    // запускать повторно.
-    // =====================================================
-
-    await ctx.scheduler.runAfter(
-      7000,
-      (api as any).world.population.assignPopulation,
-      {
-        worldId: worldStatus.worldId,
-      },
-    );
-
-    // =====================================================
-    // CARDINAL
-    // =====================================================
-    //
-    // Cardinal-интеграции в проекте остаются.
-    //
-    // Но старый Cardinal seed пока намеренно
-    // не запускаем, потому что он заранее
-    // создаёт искусственные отношения,
-    // состояния и события.
-    //
-    // Позже подключим нейтральный
-    // Cardinal Observer поверх уже
-    // самостоятельно развивающегося мира.
-    // =====================================================
+    // Cardinal hooks остаются в проекте,
+    // но старый искусственный seed не запускаем.
   },
 });
 
@@ -160,6 +123,7 @@ async function getOrCreateDefaultWorld(
     return {
       worldStatus,
       engine,
+      createdWorld: false,
     };
   }
 
@@ -250,6 +214,7 @@ async function getOrCreateDefaultWorld(
   return {
     worldStatus,
     engine,
+    createdWorld: true,
   };
 }
 
