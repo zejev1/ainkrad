@@ -1,5 +1,5 @@
 import { v } from 'convex/values';
-import { internalAction } from '../_generated/server';
+import { internalAction, internalQuery } from '../_generated/server';
 import { WorldMap, serializedWorldMap } from './worldMap';
 import { rememberConversation } from '../agent/memory';
 import { GameId, agentId, conversationId, playerId } from './ids';
@@ -141,7 +141,107 @@ export const agentGenerateMessage = internalAction({
     );
   },
 });
+export const loadDoSomethingContext = internalQuery({
+  args: {
+    worldId: v.id('worlds'),
+    playerId,
+    agentId,
+  },
 
+  handler: async (ctx, args) => {
+    const world = await ctx.db.get(args.worldId);
+
+    if (!world) {
+      throw new Error(`World not found: ${args.worldId}`);
+    }
+
+    const player = world.players.find(
+      (p) => p.id === args.playerId,
+    );
+
+    if (!player) {
+      throw new Error(`Player not found: ${args.playerId}`);
+    }
+
+    const agent = world.agents.find(
+      (a) => a.id === args.agentId,
+    );
+
+    if (!agent) {
+      throw new Error(`Agent not found: ${args.agentId}`);
+    }
+
+    const mapDoc = await ctx.db
+      .query('maps')
+      .withIndex('worldId', (q) =>
+        q.eq('worldId', args.worldId),
+      )
+      .unique();
+
+    if (!mapDoc) {
+      throw new Error(`Map not found for world ${args.worldId}`);
+    }
+
+    const {
+      _id,
+      _creationTime,
+      worldId: _worldId,
+      ...map
+    } = mapDoc;
+
+    const busyPlayers = new Set(
+      world.conversations.flatMap((conversation) =>
+        conversation.participants.map(
+          (participant) => participant.playerId,
+        ),
+      ),
+    );
+
+    const otherFreePlayers = world.players.filter(
+      (otherPlayer) =>
+        otherPlayer.id !== player.id &&
+        !busyPlayers.has(otherPlayer.id),
+    );
+
+    return {
+      player,
+      agent,
+      map,
+      otherFreePlayers,
+    };
+  },
+});
+export const agentDoSomethingLight = internalAction({
+  args: {
+    worldId: v.id('worlds'),
+    playerId,
+    agentId,
+    operationId: v.string(),
+  },
+
+  handler: async (ctx, args) => {
+    const context = await ctx.runQuery(
+      internal.aiTown.agentOperations.loadDoSomethingContext,
+      {
+        worldId: args.worldId,
+        playerId: args.playerId,
+        agentId: args.agentId,
+      },
+    );
+
+    await ctx.runAction(
+      internal.aiTown.agentOperations.agentDoSomething,
+      {
+        worldId: args.worldId,
+        player: context.player,
+        agent: context.agent,
+        map: context.map,
+        otherFreePlayers: context.otherFreePlayers,
+        operationId: args.operationId,
+      },
+    );
+  },
+});
 export const agentDoSomething = internalAction({
   args: {
     worldId: v.id('worlds'),
