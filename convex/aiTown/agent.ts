@@ -764,8 +764,7 @@ export const findConversationCandidate =
     args: {
       now: v.number(),
 
-      worldId:
-        v.id('worlds'),
+      worldId: v.id('worlds'),
 
       player: v.object(
         serializedPlayer,
@@ -788,17 +787,40 @@ export const findConversationCandidate =
         otherFreePlayers,
       },
     ) => {
-      const { position } =
-        player;
+      const { position } = player;
 
-      const candidates = [];
+      const candidates: {
+        id: GameId<'players'>;
+        score: number;
+      }[] = [];
+
+      // Загружаем историю отношений
+      // текущего NPC ко всем остальным.
+      const relationshipMemories =
+        await ctx.db
+          .query('memories')
+          .withIndex(
+            'playerId_type',
+            (q) =>
+              q
+                .eq(
+                  'playerId',
+                  player.id,
+                )
+                .eq(
+                  'data.type',
+                  'relationship',
+                ),
+          )
+          .order('desc')
+          .collect();
 
       for (
         const otherPlayer of
         otherFreePlayers
       ) {
-        // Последний разговор
-        // между этими двумя NPC.
+        // Не позволяем NPC снова
+        // моментально идти к тому же человеку.
         const lastMember =
           await ctx.db
             .query(
@@ -824,38 +846,124 @@ export const findConversationCandidate =
             .order('desc')
             .first();
 
-        if (lastMember) {
-          if (
-            now <
+        if (
+          lastMember &&
+          now <
             lastMember.ended +
               PLAYER_CONVERSATION_COOLDOWN
-          ) {
-            continue;
-          }
+        ) {
+          continue;
         }
 
-        // ВАЖНО:
-        // сохраняем позицию именно кандидата,
-        // а не текущего NPC.
-        candidates.push({
-          id: otherPlayer.id,
-          position:
+        // Берём самое свежее отношение
+        // именно к этому персонажу.
+        const relationship =
+          relationshipMemories.find(
+            (memory) =>
+              memory.data.type ===
+                'relationship' &&
+              memory.data.playerId ===
+                otherPlayer.id,
+          );
+
+        let trust = 0;
+        let affinity = 0;
+        let respect = 0;
+        let conflict = 0;
+
+        if (
+          relationship &&
+          relationship.data.type ===
+            'relationship'
+        ) {
+          trust =
+            relationship.data.trust;
+
+          affinity =
+            relationship.data.affinity;
+
+          respect =
+            relationship.data.respect;
+
+          conflict =
+            relationship.data.conflict;
+        }
+
+        // -------------------------------------------------
+        // СИЛЬНАЯ НЕПРИЯЗНЬ / КОНФЛИКТ
+        // -------------------------------------------------
+        //
+        // NPC не обязан всегда избегать врага:
+        // иначе конфликт никогда не сможет развиваться.
+        //
+        // Но при очень плохих отношениях
+        // большая часть добровольных встреч
+        // будет отсеиваться.
+        // -------------------------------------------------
+
+        if (
+          conflict >= 75 &&
+          affinity <= -50 &&
+          Math.random() < 0.75
+        ) {
+          continue;
+        }
+
+        if (
+          conflict >= 50 &&
+          affinity <= -25 &&
+          Math.random() < 0.4
+        ) {
+          continue;
+        }
+
+        const physicalDistance =
+          distance(
             otherPlayer.position,
+            position,
+          );
+
+        // -------------------------------------------------
+        // СОЦИАЛЬНОЕ ПРИТЯЖЕНИЕ
+        // -------------------------------------------------
+        //
+        // Чем выше affinity/trust/respect,
+        // тем "ближе" человек воспринимается
+        // при выборе собеседника.
+        //
+        // Конфликт делает его социально дальше.
+        // -------------------------------------------------
+
+        const socialPull =
+          affinity * 0.18 +
+          trust * 0.1 +
+          respect * 0.05 -
+          conflict * 0.22;
+
+        // Немного случайности,
+        // чтобы NPC не выбирал одного и того же
+        // человека математически каждый раз.
+        const randomness =
+          Math.random() * 10;
+
+        // Чем МЕНЬШЕ score,
+        // тем привлекательнее кандидат.
+        const score =
+          physicalDistance -
+          socialPull +
+          randomness;
+
+        candidates.push({
+          id:
+            otherPlayer.id as GameId<'players'>,
+
+          score,
         });
       }
 
-      // Выбираем ближайшего
-      // доступного персонажа.
       candidates.sort(
         (a, b) =>
-          distance(
-            a.position,
-            position,
-          ) -
-          distance(
-            b.position,
-            position,
-          ),
+          a.score - b.score,
       );
 
       return candidates[0]?.id;
