@@ -86,48 +86,7 @@ export async function stopEngine(ctx: MutationCtx, worldId: Id<'worlds'>) {
   await ctx.db.patch(engineId, { running: false });
 }
 
-export const runStep = internalAction({
-  args: {
-    worldId: v.id('worlds'),
-    generationNumber: v.number(),
-    maxDuration: v.number(),
-  },
-  handler: async (ctx, args) => {
-    try {
-      const { engine, gameState } = await ctx.runQuery(internal.aiTown.game.loadWorld, {
-        worldId: args.worldId,
-        generationNumber: args.generationNumber,
-      });
-      const game = new Game(engine, args.worldId, gameState);
 
-      let now = Date.now();
-      const deadline = now + args.maxDuration;
-      while (now < deadline) {
-        await game.runStep(ctx, now);
-        const sleepUntil = Math.min(now + game.stepDuration, deadline);
-        await sleep(sleepUntil - now);
-        now = Date.now();
-      }
-      await ctx.scheduler.runAfter(0, internal.aiTown.main.runStep, {
-        worldId: args.worldId,
-        generationNumber: game.engine.generationNumber,
-        maxDuration: args.maxDuration,
-      });
-    } catch (e: unknown) {
-      if (e instanceof ConvexError) {
-        if (e.data.kind === 'engineNotRunning') {
-          console.debug(`Engine is not running: ${e.message}`);
-          return;
-        }
-        if (e.data.kind === 'generationNumber') {
-          console.debug(`Generation number mismatch: ${e.message}`);
-          return;
-        }
-      }
-      throw e;
-    }
-  },
-});
 
 export const sendInput = mutation({
   args: {
