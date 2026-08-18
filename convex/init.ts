@@ -24,7 +24,6 @@ const init = mutation({
     const {
       worldStatus,
       engine,
-      createdWorld,
     } = await getOrCreateDefaultWorld(ctx);
 
     if (worldStatus.status !== 'running') {
@@ -35,17 +34,45 @@ const init = mutation({
       return;
     }
 
-    // Создаём стартовое поселение только
-    // как часть первоначальной инициализации мира.
-    if (createdWorld) {
-      await ctx.scheduler.runAfter(
-        0,
-        (api as any).world.seed.seedStarterSettlement,
-        {
-          worldId: worldStatus.worldId,
-        },
-      );
-    }
+    // Проверяем, есть ли уже логические здания.
+    const existingBuilding =
+      await ctx.db
+        .query('buildings')
+        .withIndex(
+          'worldId',
+          (q) =>
+            q.eq(
+              'worldId',
+              worldStatus.worldId,
+            ),
+        )
+        .first();
+
+    const needsSettlement =
+      !existingBuilding;
+
+    // =====================================================
+    // STARTER SETTLEMENT
+    // =====================================================
+    //
+    // Запускаем проверку при каждом init.
+    //
+    // Сам seed идемпотентный:
+    // если здания уже существуют,
+    // он ничего не пересоздаёт.
+    // =====================================================
+
+    await ctx.scheduler.runAfter(
+      0,
+      (api as any).world.seed.seedStarterSettlement,
+      {
+        worldId: worldStatus.worldId,
+      },
+    );
+
+    // =====================================================
+    // NPC
+    // =====================================================
 
     const shouldCreate =
       await shouldCreateAgents(
@@ -76,9 +103,26 @@ const init = mutation({
           },
         );
       }
+    }
 
-      // Только если NPC реально создаются впервые,
-      // запускаем их первоначальное заселение.
+    // =====================================================
+    // INITIAL POPULATION ASSIGNMENT
+    // =====================================================
+    //
+    // Запускаем только в двух случаях:
+    //
+    // 1. NPC создаются впервые.
+    // 2. Это старый мир, который существовал
+    //    ещё до появления нашей системы зданий.
+    //
+    // Сам population.ts теперь не трогает
+    // уже инициализированных жителей.
+    // =====================================================
+
+    if (
+      shouldCreate ||
+      needsSettlement
+    ) {
       await ctx.scheduler.runAfter(
         7000,
         (api as any).world.population.assignPopulation,
@@ -88,11 +132,9 @@ const init = mutation({
       );
     }
 
-    // Если мир уже существовал и NPC уже были,
-    // мы ничего не пересоздаём и не переназначаем.
-    //
-    // Cardinal hooks остаются в проекте,
-    // но старый искусственный seed не запускаем.
+    // Cardinal hooks остаются подключёнными.
+    // Старый искусственный Cardinal seed
+    // пока не запускается.
   },
 });
 
@@ -123,7 +165,6 @@ async function getOrCreateDefaultWorld(
     return {
       worldStatus,
       engine,
-      createdWorld: false,
     };
   }
 
@@ -214,7 +255,6 @@ async function getOrCreateDefaultWorld(
   return {
     worldStatus,
     engine,
-    createdWorld: true,
   };
 }
 
