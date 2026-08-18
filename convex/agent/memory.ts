@@ -245,7 +245,7 @@ async function updateRelationshipFromConversation(
     );
 
   const current: RelationshipState =
-  const current: RelationshipState =
+
   existingRelationship &&
   existingRelationship.data.type === 'relationship'
     ? {
