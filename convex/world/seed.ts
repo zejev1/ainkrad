@@ -80,7 +80,6 @@ export const seedStarterSettlement = mutation({
       )
       .first();
 
-    // Уже есть здания — повторно поселение не создаём.
     if (existing) {
       return {
         created: false,
@@ -105,4 +104,58 @@ export const seedStarterSettlement = mutation({
 
           capacity: building.capacity,
 
-          residents
+          residents: [],
+
+          workers: [],
+
+          affordances: [
+            ...building.affordances,
+          ],
+
+          createdAt: now,
+          updatedAt: now,
+        },
+      );
+
+      await ctx.db.insert(
+        'buildingInventories',
+        {
+          worldId: args.worldId,
+
+          buildingId,
+
+          food:
+            building.kind === 'farm'
+              ? 20
+              : 0,
+
+          wood:
+            building.kind === 'warehouse'
+              ? 20
+              : 0,
+
+          stone:
+            building.kind === 'warehouse'
+              ? 10
+              : 0,
+
+          goods:
+            building.kind === 'workshop'
+              ? 5
+              : 0,
+
+          money:
+            building.kind === 'market'
+              ? 100
+              : 0,
+
+          updatedAt: now,
+        },
+      );
+    }
+
+    return {
+      created: true,
+    };
+  },
+});
