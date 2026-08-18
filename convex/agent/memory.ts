@@ -245,23 +245,25 @@ async function updateRelationshipFromConversation(
     );
 
   const current: RelationshipState =
-    existingRelationship
-      ? {
-          trust:
-            existingRelationship.data.trust,
-          affinity:
-            existingRelationship.data.affinity,
-          respect:
-            existingRelationship.data.respect,
-          conflict:
-            existingRelationship.data.conflict,
-        }
-      : {
-          trust: 0,
-          affinity: 0,
-          respect: 0,
-          conflict: 0,
-        };
+  const current: RelationshipState =
+  existingRelationship &&
+  existingRelationship.data.type === 'relationship'
+    ? {
+        trust:
+          existingRelationship.data.trust,
+        affinity:
+          existingRelationship.data.affinity,
+        respect:
+          existingRelationship.data.respect,
+        conflict:
+          existingRelationship.data.conflict,
+      }
+    : {
+        trust: 0,
+        affinity: 0,
+        respect: 0,
+        conflict: 0,
+      };
 
   const relationshipPrompt = `
 You are ${player.name}.
