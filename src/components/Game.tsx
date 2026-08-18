@@ -163,8 +163,6 @@ export default function Game() {
 
   return (
     <>
-    return (
-  <>
     <div className="bg-black text-white px-3 py-2 text-xs font-mono">
       LLM: {llmStatus?.provider ?? 'checking...'}
       {' | '}
@@ -175,7 +173,7 @@ export default function Game() {
       Ollama: {llmStatus?.ollamaHost ?? 'unknown'}
     </div>
 
-    {SHOW_DEBUG_UI && (  
+    
       {SHOW_DEBUG_UI && (
         <DebugTimeManager
           timeManager={timeManager}
