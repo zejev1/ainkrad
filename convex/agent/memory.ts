@@ -40,13 +40,25 @@ export async function rememberConversation(
   }
 
   const llmMessages: LLMMessage[] = [
-    {
-      role: 'user',
-      content: `You are ${player.name}, and you just finished a conversation with ${otherPlayer.name}. I would
-      like you to summarize the conversation from ${player.name}'s perspective, using first-person pronouns like
-      "I," and add if you liked or disliked this interaction.`,
-    },
-  ];
+  {
+    role: 'user',
+    content: `You are ${player.name}, and you just finished a conversation with ${otherPlayer.name}.
+
+Summarize the conversation from ${player.name}'s perspective.
+
+Rules:
+- Preserve the language of the conversation.
+- If the conversation was mainly in Russian, write the memory in natural Russian.
+- If it was mainly in English, write the memory in English.
+- If both languages were used, use the language that dominated the conversation.
+- Use first-person perspective.
+- Include emotionally important details.
+- Mention whether you liked, disliked, trusted, distrusted, appreciated, feared, respected, or became annoyed with the other person when relevant.
+- Preserve important facts, promises, conflicts, requests, opinions, names, and relationship changes.
+- Do not invent events that did not happen.
+- This summary will become your long-term memory and may affect future behavior.`,
+  },
+];
   const authors = new Set<GameId<'players'>>();
   for (const message of messages) {
     const author = message.author === player.id ? player : otherPlayer;
