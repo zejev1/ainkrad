@@ -359,7 +359,16 @@ async function reflectOnMemories(
   }
   console.debug('sum of importance score = ', sumOfImportanceScore);
   console.debug('Reflecting...');
-  const prompt = ['[no prose]', '[Output only JSON]', `You are ${name}, statements about you:`];
+  const prompt = [
+  '[no prose]',
+  '[Output only JSON]',
+  `You are ${name}, statements about you:`,
+  'Preserve the dominant language of the memories when writing insights.',
+  'If the memories are mainly in Russian, write insights in Russian.',
+  'If the memories are mainly in English, write insights in English.',
+  'Focus especially on recurring relationships, trust, distrust, sympathy, irritation, cooperation, conflict, promises, loyalty, fear, respect, and changes in attitude toward other people.',
+  'Do not invent facts that are not supported by the memories.',
+];
   memories.forEach((m, idx) => {
     prompt.push(`Statement ${idx}: ${m.description}`);
   });
