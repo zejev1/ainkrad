@@ -673,10 +673,17 @@ export async function runAgentOperation(
       break;
 
     case 'agentDoSomething':
-      reference =
-        internal.aiTown.agentOperations
-          .agentDoSomething;
-      break;
+  await ctx.scheduler.runAfter(
+    0,
+    internal.aiTown.agentOperations.agentDoSomethingLight,
+    {
+      worldId: args.worldId,
+      playerId: args.player.id,
+      agentId: args.agent.id,
+      operationId: args.operationId,
+    },
+  );
+  return;
 
     default:
       throw new Error(
