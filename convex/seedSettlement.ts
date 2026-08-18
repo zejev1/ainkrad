@@ -11,63 +11,63 @@ const STARTER_BUILDINGS = [
     name: 'Дом 1',
     position: { x: 6, y: 6 },
     capacity: 4,
-    affordances: ['sleep', 'rest', 'socialize'],
+    affordances: ['sleep', 'rest', 'socialize'] as const,
   },
   {
     kind: 'home' as const,
     name: 'Дом 2',
     position: { x: 10, y: 6 },
     capacity: 4,
-    affordances: ['sleep', 'rest', 'socialize'],
+    affordances: ['sleep', 'rest', 'socialize'] as const,
   },
   {
     kind: 'home' as const,
     name: 'Дом 3',
     position: { x: 14, y: 6 },
     capacity: 4,
-    affordances: ['sleep', 'rest', 'socialize'],
+    affordances: ['sleep', 'rest', 'socialize'] as const,
   },
   {
     kind: 'home' as const,
     name: 'Дом 4',
     position: { x: 6, y: 10 },
     capacity: 4,
-    affordances: ['sleep', 'rest', 'socialize'],
+    affordances: ['sleep', 'rest', 'socialize'] as const,
   },
   {
     kind: 'home' as const,
     name: 'Дом 5',
     position: { x: 10, y: 10 },
     capacity: 4,
-    affordances: ['sleep', 'rest', 'socialize'],
+    affordances: ['sleep', 'rest', 'socialize'] as const,
   },
   {
     kind: 'farm' as const,
     name: 'Ферма',
     position: { x: 14, y: 10 },
     capacity: 6,
-    affordances: ['work', 'harvest'],
+    affordances: ['work', 'harvest'] as const,
   },
   {
     kind: 'workshop' as const,
     name: 'Мастерская',
     position: { x: 6, y: 14 },
     capacity: 5,
-    affordances: ['work', 'craft'],
+    affordances: ['work', 'craft'] as const,
   },
   {
     kind: 'market' as const,
     name: 'Рынок',
     position: { x: 10, y: 14 },
     capacity: 8,
-    affordances: ['buy', 'sell', 'socialize'],
+    affordances: ['buy', 'sell', 'socialize'] as const,
   },
   {
     kind: 'warehouse' as const,
     name: 'Склад',
     position: { x: 14, y: 14 },
     capacity: 6,
-    affordances: ['store', 'work'],
+    affordances: ['store', 'work'] as const,
   },
 ];
 
@@ -85,12 +85,6 @@ async function ensureSettlement(
       )
       .collect();
 
-  const buildings = [];
-
-  // =====================================================
-  // CREATE OR REPAIR BUILDINGS
-  // =====================================================
-
   for (const definition of STARTER_BUILDINGS) {
     const existing =
       existingBuildings.find(
@@ -99,8 +93,6 @@ async function ensureSettlement(
       );
 
     if (existing) {
-      // Переносим старые технические маркеры
-      // в новую компактную зону.
       await ctx.db.patch(
         existing._id,
         {
@@ -113,11 +105,6 @@ async function ensureSettlement(
           updatedAt: now,
         },
       );
-
-      existing.position =
-        definition.position;
-
-      buildings.push(existing);
 
       continue;
     }
@@ -132,14 +119,11 @@ async function ensureSettlement(
           position: definition.position,
           status: 'active',
           capacity: definition.capacity,
-
           residents: [],
           workers: [],
-
           affordances: [
             ...definition.affordances,
           ],
-
           createdAt: now,
           updatedAt: now,
         },
@@ -179,16 +163,8 @@ async function ensureSettlement(
         updatedAt: now,
       },
     );
-
-    const created =
-      await ctx.db.get(buildingId);
-
-    if (created) {
-      buildings.push(created);
-    }
   }
 
-  // Получаем уже обновлённые здания.
   const currentBuildings =
     await ctx.db
       .query('buildings')
@@ -215,10 +191,6 @@ async function ensureSettlement(
         ) &&
         building.status === 'active',
     );
-
-  // =====================================================
-  // POPULATION
-  // =====================================================
 
   const world =
     await ctx.db.get(worldId);
@@ -260,10 +232,6 @@ async function ensureSettlement(
   let assignedJobs = 0;
 
   for (const player of npcPlayers) {
-    // ===================================================
-    // NEEDS
-    // ===================================================
-
     const existingNeeds =
       await ctx.db
         .query('npcNeeds')
@@ -313,10 +281,6 @@ async function ensureSettlement(
       );
     }
 
-    // ===================================================
-    // PERSONAL INVENTORY
-    // ===================================================
-
     const existingInventory =
       await ctx.db
         .query('npcInventories')
@@ -352,10 +316,6 @@ async function ensureSettlement(
         },
       );
     }
-
-    // ===================================================
-    // HOME
-    // ===================================================
 
     if (
       !residentsAlreadyAssigned.has(
@@ -398,10 +358,6 @@ async function ensureSettlement(
         assignedHomes++;
       }
     }
-
-    // ===================================================
-    // JOB
-    // ===================================================
 
     if (
       !workersAlreadyAssigned.has(
@@ -450,10 +406,8 @@ async function ensureSettlement(
     worldId,
     buildings:
       currentBuildings.length,
-
     population:
       npcPlayers.length,
-
     assignedHomes,
     assignedJobs,
   };
