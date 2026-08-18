@@ -15,17 +15,36 @@ import { PositionIndicator } from './PositionIndicator.tsx';
 import { SHOW_DEBUG_UI } from './Game.tsx';
 import { ServerGame } from '../hooks/serverGame.ts';
 
+type Building = {
+  _id: Id<'buildings'>;
+  kind:
+    | 'home'
+    | 'farm'
+    | 'workshop'
+    | 'market'
+    | 'warehouse'
+    | 'constructionSite';
+  name: string;
+  position: {
+    x: number;
+    y: number;
+  };
+  capacity: number;
+  residents: string[];
+  workers: string[];
+};
+
 function BuildingMarker({
   building,
   tileDim,
 }: {
-  building: any;
+  building: Building;
   tileDim: number;
 }) {
   const x = building.position.x * tileDim;
   const y = building.position.y * tileDim;
 
-  const labels: Record<string, string> = {
+  const icons: Record<string, string> = {
     home: '🏠',
     farm: '🌾',
     workshop: '🔨',
@@ -34,13 +53,14 @@ function BuildingMarker({
     constructionSite: '🚧',
   };
 
-  const emoji = labels[building.kind] ?? '🏢';
+  const emoji = icons[building.kind] ?? '🏢';
 
   const draw = useCallback(
     (g: PIXI.Graphics) => {
       g.clear();
       g.beginFill(0x3f3f3f, 0.85);
       g.lineStyle(2, 0xffffff, 0.7);
+
       g.drawRoundedRect(
         x,
         y,
@@ -48,6 +68,7 @@ function BuildingMarker({
         tileDim * 2.5,
         6,
       );
+
       g.endFill();
     },
     [x, y, tileDim],
@@ -102,13 +123,11 @@ export const PixiGame = (props: {
   setSelectedElement: SelectElement;
 }) => {
   const pixiApp = useApp();
-
-  const viewportRef =
-    useRef<Viewport | undefined>();
+  const viewportRef = useRef<Viewport | undefined>();
 
   const buildings =
     useQuery(
-      api.world.buildings.listBuildings,
+      api.buildings.listBuildings,
       {
         worldId: props.worldId,
       },
@@ -141,9 +160,7 @@ export const PixiGame = (props: {
       screenY: number;
     } | null>(null);
 
-  const onMapPointerDown = (
-    e: any,
-  ) => {
+  const onMapPointerDown = (e: any) => {
     dragStart.current = {
       screenX: e.screenX,
       screenY: e.screenY,
@@ -173,8 +190,7 @@ export const PixiGame = (props: {
         dragStart.current = null;
 
         if (
-          Math.sqrt(dx * dx + dy * dy) >
-          10
+          Math.sqrt(dx * dx + dy * dy) > 10
         ) {
           return;
         }
@@ -248,13 +264,9 @@ export const PixiGame = (props: {
 
     viewportRef.current.animate({
       position: new PIXI.Point(
-        humanPlayer.position.x *
-          tileDim,
-
-        humanPlayer.position.y *
-          tileDim,
+        humanPlayer.position.x * tileDim,
+        humanPlayer.position.y * tileDim,
       ),
-
       scale: 1.5,
     });
   }, [humanPlayerId, tileDim]);
@@ -275,7 +287,7 @@ export const PixiGame = (props: {
       />
 
       {buildings.map(
-        (building) => (
+        (building: Building) => (
           <BuildingMarker
             key={building._id}
             building={building}
