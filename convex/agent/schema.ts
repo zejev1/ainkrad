@@ -9,31 +9,58 @@ export const memoryFields = {
   embeddingId: v.id('memoryEmbeddings'),
   importance: v.number(),
   lastAccess: v.number(),
+
   data: v.union(
-    // Setting up dynamics between players
     v.object({
       type: v.literal('relationship'),
-      // The player this memory is about, from the perspective of the player
-      // whose memory this is.
+
+      // The player this relationship is about.
       playerId,
+
+      // -100 = complete distrust
+      // 0 = neutral
+      // 100 = complete trust
+      trust: v.number(),
+
+      // -100 = strong dislike
+      // 0 = neutral
+      // 100 = strong affection
+      affinity: v.number(),
+
+      // -100 = contempt
+      // 0 = neutral
+      // 100 = deep respect
+      respect: v.number(),
+
+      // 0 = no active conflict
+      // 100 = extreme hostility/conflict
+      conflict: v.number(),
+
+      // Timestamp of the latest meaningful relationship update.
+      updatedAt: v.number(),
     }),
+
     v.object({
       type: v.literal('conversation'),
       conversationId,
+
       // The other player(s) in the conversation.
       playerIds: v.array(playerId),
     }),
+
     v.object({
       type: v.literal('reflection'),
       relatedMemoryIds: v.array(v.id('memories')),
     }),
   ),
 };
+
 export const memoryTables = {
   memories: defineTable(memoryFields)
     .index('embeddingId', ['embeddingId'])
     .index('playerId_type', ['playerId', 'data.type'])
     .index('playerId', ['playerId']),
+
   memoryEmbeddings: defineTable({
     playerId,
     embedding: v.array(v.float64()),
@@ -46,6 +73,7 @@ export const memoryTables = {
 
 export const agentTables = {
   ...memoryTables,
+
   embeddingsCache: defineTable({
     textHash: v.bytes(),
     embedding: v.array(v.float64()),
