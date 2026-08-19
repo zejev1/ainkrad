@@ -1,9 +1,17 @@
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import type { TableNames } from './_generated/dataModel';
-import { internalMutation } from './_generated/server';
 
-import { DELETE_BATCH_SIZE } from './constants';
+import type {
+  TableNames,
+} from './_generated/dataModel';
+
+import {
+  internalMutation,
+} from './_generated/server';
+
+import {
+  DELETE_BATCH_SIZE,
+} from './constants';
 
 import {
   RETENTION,
@@ -14,17 +22,26 @@ import {
 // AINKRAD RETENTION ENGINE
 // ======================================================
 //
-// Этот файл ФИЗИЧЕСКИ выполняет очистку.
-//
-// Правила находятся только в:
+// Правила хранения:
 //
 // retentionPolicy.ts
 //
-// Главная защита:
+// Этот файл только выполняет
+// разрешённые правила.
 //
-// таблица, которой нет в AUTO_DELETE_TABLES,
-// не может быть удалена этим механизмом.
+// Всё, чего нет в AUTO_DELETE_TABLES,
+// считается защищённым.
 // ======================================================
+
+// Пока generated API ещё не обновился,
+// обращаемся к новому модулю через any.
+//
+// После следующего успешного Convex codegen
+// это можно будет заменить
+// на обычный internal.retention.
+const retentionInternal =
+  (internal as any)
+    .retention;
 
 const MAX_INPUT_DELETE_PER_RUN =
   500;
@@ -109,7 +126,8 @@ export const runDailyRetention =
         Date.now();
 
       // -----------------------------------------------
-      // Таблицы с обычным сроком хранения
+      // Простые таблицы,
+      // которые очищаются по возрасту.
       // -----------------------------------------------
 
       for (
@@ -128,7 +146,7 @@ export const runDailyRetention =
 
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupAgePage,
           {
             tableName,
@@ -140,7 +158,7 @@ export const runDailyRetention =
       }
 
       // -----------------------------------------------
-      // Memories требуют специальной логики.
+      // Memories имеют специальные правила.
       // -----------------------------------------------
 
       assertCanAutoDelete(
@@ -153,7 +171,7 @@ export const runDailyRetention =
 
       await ctx.scheduler.runAfter(
         0,
-        internal.retention
+        retentionInternal
           .cleanupMemoriesPage,
         {
           conversationBefore:
@@ -187,7 +205,7 @@ export const runDailyRetention =
   });
 
 // ======================================================
-// ОБЫЧНАЯ ОЧИСТКА ПО ВОЗРАСТУ
+// ОЧИСТКА ПО ВОЗРАСТУ
 // ======================================================
 
 export const cleanupAgePage =
@@ -218,10 +236,6 @@ export const cleanupAgePage =
         soFar,
       },
     ) => {
-      // -----------------------------------------------
-      // ДВОЙНАЯ ЗАЩИТА
-      // -----------------------------------------------
-
       assertCanAutoDelete(
         tableName,
       );
@@ -251,6 +265,7 @@ export const cleanupAgePage =
           )
           .paginate({
             cursor,
+
             numItems:
               DELETE_BATCH_SIZE,
           });
@@ -273,7 +288,7 @@ export const cleanupAgePage =
       ) {
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupAgePage,
           {
             tableName,
@@ -295,9 +310,12 @@ export const cleanupAgePage =
 
       return {
         tableName,
+
         deleted:
           results.page.length,
+
         total,
+
         done:
           results.isDone,
       };
@@ -308,13 +326,11 @@ export const cleanupAgePage =
 // INPUTS
 // ======================================================
 //
-// Здесь НЕ используется возраст.
+// Не удаляем inputs просто по возрасту.
 //
-// Движок говорит нам,
-// какой input уже обработан.
-//
-// Мы оставляем последние N,
-// заданные retentionPolicy.
+// Смотрим processedInputNumber
+// каждого движка и сохраняем
+// последние N обработанных команд.
 // ======================================================
 
 export const cleanupProcessedInputs =
@@ -341,6 +357,9 @@ export const cleanupProcessedInputs =
           engineId:
             string;
 
+          processedInputNumber:
+            number;
+
           cutoff:
             number;
 
@@ -359,13 +378,13 @@ export const cleanupProcessedInputs =
           break;
         }
 
-        const processed =
+        const processedInputNumber =
           engine
             .processedInputNumber ??
           -1;
 
         const cutoff =
-          processed -
+          processedInputNumber -
           RETENTION
             .inputs
             .keepRecent;
@@ -423,6 +442,8 @@ export const cleanupProcessedInputs =
               engine._id,
             ),
 
+          processedInputNumber,
+
           cutoff,
 
           deleted:
@@ -434,6 +455,23 @@ export const cleanupProcessedInputs =
         `Retention deleted ${deleted} processed inputs`,
       );
 
+      // Если мы упёрлись в лимит,
+      // значит хвост может быть ещё большим.
+      //
+      // Не ждём следующие 30 минут —
+      // продолжаем маленькими порциями.
+      if (
+        deleted ===
+        MAX_INPUT_DELETE_PER_RUN
+      ) {
+        await ctx.scheduler.runAfter(
+          1000,
+          retentionInternal
+            .cleanupProcessedInputs,
+          {},
+        );
+      }
+
       return {
         deleted,
 
@@ -441,6 +479,10 @@ export const cleanupProcessedInputs =
           RETENTION
             .inputs
             .keepRecent,
+
+        continuing:
+          deleted ===
+          MAX_INPUT_DELETE_PER_RUN,
 
         details,
       };
@@ -451,11 +493,7 @@ export const cleanupProcessedInputs =
 // CARDINAL EVENTS
 // ======================================================
 //
-// Здесь НЕ удаляем события
-// просто потому что они старые.
-//
-// Удаляется только событие,
-// которое само объявило:
+// Событие удаляется только если:
 //
 // expiresAt <= now
 //
@@ -474,7 +512,7 @@ export const cleanupExpiredCardinalEvents =
 
       await ctx.scheduler.runAfter(
         0,
-        internal.retention
+        retentionInternal
           .cleanupExpiredCardinalEventsPage,
         {
           expiresBefore:
@@ -522,6 +560,7 @@ export const cleanupExpiredCardinalEventsPage =
           )
           .paginate({
             cursor,
+
             numItems:
               DELETE_BATCH_SIZE,
           });
@@ -533,8 +572,8 @@ export const cleanupExpiredCardinalEventsPage =
         const event of
         results.page
       ) {
-        // Нет expiresAt =
-        // постоянное событие.
+        // Нет expiresAt —
+        // считаем событие постоянным.
         if (
           event.expiresAt ===
           undefined
@@ -565,7 +604,7 @@ export const cleanupExpiredCardinalEventsPage =
       ) {
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupExpiredCardinalEventsPage,
           {
             expiresBefore,
@@ -601,17 +640,17 @@ export const cleanupExpiredCardinalEventsPage =
 // ======================================================
 //
 // conversation:
-// удаляем после срока хранения,
-// если память давно не использовалась.
+// старая и давно не использовалась
+// -> удалить.
 //
 // reflection:
-// то же самое.
+// старая и давно не использовалась
+// -> удалить.
 //
 // relationship:
-// удаляем только СТАРУЮ историю.
-//
-// САМОЕ НОВОЕ состояние отношений
-// каждой пары NPC сохраняется.
+// старые версии можно удалить,
+// но последнюю запись каждой пары
+// сохраняем.
 // ======================================================
 
 export const cleanupMemoriesPage =
@@ -654,10 +693,12 @@ export const cleanupMemoriesPage =
         'memoryEmbeddings',
       );
 
-      // Самый ранний cutoff нужен
-      // только чтобы не читать
-      // совсем свежие memories.
-      const oldestCandidateBefore =
+      // conversation/reflection имеют
+      // наиболее короткий срок.
+      //
+      // Relationship старше 90 дней
+      // всё равно попадают в этот диапазон.
+      const candidateBefore =
         Math.max(
           conversationBefore,
           reflectionBefore,
@@ -673,11 +714,12 @@ export const cleanupMemoriesPage =
             (q) =>
               q.lt(
                 '_creationTime',
-                oldestCandidateBefore,
+                candidateBefore,
               ),
           )
           .paginate({
             cursor,
+
             numItems:
               DELETE_BATCH_SIZE,
           });
@@ -693,7 +735,7 @@ export const cleanupMemoriesPage =
           false;
 
         // ---------------------------------------------
-        // CONVERSATION
+        // CONVERSATION MEMORY
         // ---------------------------------------------
 
         if (
@@ -708,7 +750,7 @@ export const cleanupMemoriesPage =
         }
 
         // ---------------------------------------------
-        // REFLECTION
+        // REFLECTION MEMORY
         // ---------------------------------------------
 
         if (
@@ -723,12 +765,12 @@ export const cleanupMemoriesPage =
         }
 
         // ---------------------------------------------
-        // RELATIONSHIP
+        // RELATIONSHIP MEMORY
         // ---------------------------------------------
 
         if (
           memory.data.type ===
-          'relationship' &&
+            'relationship' &&
           memory._creationTime <
             relationshipBefore &&
           memory.data.updatedAt <
@@ -766,14 +808,13 @@ export const cleanupMemoriesPage =
                       q.field(
                         'data.playerId',
                       ),
-                      memory.data.playerId,
+                      memory
+                        .data
+                        .playerId,
                     ),
                 )
                 .first();
 
-            // Если это НЕ самая новая
-            // запись отношений —
-            // старую историю можно удалить.
             shouldDelete =
               latest !== null &&
               latest._id !==
@@ -807,7 +848,7 @@ export const cleanupMemoriesPage =
       ) {
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupMemoriesPage,
           {
             conversationBefore,
@@ -827,11 +868,11 @@ export const cleanupMemoriesPage =
           `Retention removed ${total} old memories`,
         );
 
-        // После очистки memories
-        // проверяем старые orphan embeddings.
+        // После основной очистки
+        // удаляем старые orphan embeddings.
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupOrphanEmbeddingsPage,
           {
             cursor: null,
@@ -855,16 +896,6 @@ export const cleanupMemoriesPage =
 // ======================================================
 // БЕЗОПАСНОЕ УДАЛЕНИЕ MEMORY
 // ======================================================
-//
-// Сначала удаляем memory.
-//
-// Затем проверяем,
-// осталась ли хоть одна memory,
-// использующая тот же embedding.
-//
-// Только если embedding стал orphan,
-// удаляем и его.
-// ======================================================
 
 async function deleteMemorySafely(
   ctx: any,
@@ -873,10 +904,13 @@ async function deleteMemorySafely(
   const embeddingId =
     memory.embeddingId;
 
+  // Сначала удаляется сама memory.
   await ctx.db.delete(
     memory._id,
   );
 
+  // Проверяем, не использует ли
+  // тот же embedding другая memory.
   const stillReferenced =
     await ctx.db
       .query(
@@ -916,11 +950,13 @@ async function deleteMemorySafely(
 // ORPHAN MEMORY EMBEDDINGS
 // ======================================================
 //
-// Эта функция исправляет также старые orphan embeddings,
-// которые могли остаться от прежнего vacuum.
+// Старые версии Ainkrad могли оставить
+// embedding без соответствующей memory.
 //
-// На существующую memory она никогда
-// не поднимет руку.
+// Удаляем только такие записи.
+//
+// Если memory существует,
+// embedding автоматически защищён.
 // ======================================================
 
 export const cleanupOrphanEmbeddingsPage =
@@ -954,6 +990,7 @@ export const cleanupOrphanEmbeddingsPage =
           )
           .paginate({
             cursor,
+
             numItems:
               DELETE_BATCH_SIZE,
           });
@@ -980,8 +1017,7 @@ export const cleanupOrphanEmbeddingsPage =
             )
             .first();
 
-        // Есть memory =
-        // embedding защищён.
+        // Embedding всё ещё нужен.
         if (
           memory
         ) {
@@ -1004,7 +1040,7 @@ export const cleanupOrphanEmbeddingsPage =
       ) {
         await ctx.scheduler.runAfter(
           0,
-          internal.retention
+          retentionInternal
             .cleanupOrphanEmbeddingsPage,
           {
             cursor:
