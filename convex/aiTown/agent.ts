@@ -30,6 +30,12 @@ import { internal } from '../_generated/api';
 import { movePlayer } from './movement';
 import { insertInput } from './insertInput';
 
+// Не позволяем случайно снова протащить
+// карту, весь мир или большой массив NPC
+// через pendingOperations / Convex scheduler.
+const MAX_AGENT_OPERATION_PAYLOAD_SIZE =
+  8 * 1024;
+
 export class Agent {
   id: GameId<'agents'>;
   playerId: GameId<'players'>;
@@ -58,7 +64,11 @@ export class Agent {
       serialized.playerId,
     );
 
-    this.id = parseGameId('agents', id);
+    this.id = parseGameId(
+      'agents',
+      id,
+    );
+
     this.playerId = playerId;
 
     this.toRemember =
@@ -69,14 +79,24 @@ export class Agent {
           )
         : undefined;
 
-    this.lastConversation = lastConversation;
-    this.lastInviteAttempt = lastInviteAttempt;
-    this.inProgressOperation = inProgressOperation;
+    this.lastConversation =
+      lastConversation;
+
+    this.lastInviteAttempt =
+      lastInviteAttempt;
+
+    this.inProgressOperation =
+      inProgressOperation;
   }
 
-  tick(game: Game, now: number) {
+  tick(
+    game: Game,
+    now: number,
+  ) {
     const player =
-      game.world.players.get(this.playerId);
+      game.world.players.get(
+        this.playerId,
+      );
 
     if (!player) {
       throw new Error(
@@ -84,7 +104,8 @@ export class Agent {
       );
     }
 
-    // Если агент уже выполняет внешнюю операцию,
+    // Если агент уже выполняет
+    // внешнюю операцию —
     // ждём её завершения.
     if (this.inProgressOperation) {
       if (
@@ -105,10 +126,14 @@ export class Agent {
     }
 
     const conversation =
-      game.world.playerConversation(player);
+      game.world.playerConversation(
+        player,
+      );
 
     const member =
-      conversation?.participants.get(player.id);
+      conversation?.participants.get(
+        player.id,
+      );
 
     const recentlyAttemptedInvite =
       this.lastInviteAttempt &&
@@ -121,13 +146,18 @@ export class Agent {
       player.activity.until > now;
 
     // Если персонаж занят активностью,
-    // но оказался в разговоре или начал движение,
+    // но оказался в разговоре
+    // или начал движение —
     // прекращаем старую активность.
     if (
       doingActivity &&
-      (conversation || player.pathfinding)
+      (
+        conversation ||
+        player.pathfinding
+      )
     ) {
-      player.activity!.until = now;
+      player.activity!.until =
+        now;
     }
 
     // --------------------------------------------------
@@ -137,37 +167,40 @@ export class Agent {
     if (
       !conversation &&
       !doingActivity &&
-      (!player.pathfinding ||
-        !recentlyAttemptedInvite)
+      (
+        !player.pathfinding ||
+        !recentlyAttemptedInvite
+      )
     ) {
+      // ВАЖНО:
+      //
+      // раньше сюда передавались:
+      // - полный player
+      // - полный agent
+      // - все свободные игроки
+      // - вся карта
+      //
+      // Всё это попадало в pendingOperations,
+      // а затем могло раздувать scheduled functions.
+      //
+      // Теперь передаём ТОЛЬКО ID.
+      //
+      // Полный контекст будет загружен
+      // позже внутри agentDoSomethingLight.
+
       this.startOperation(
         game,
         now,
-        'agentDoSomething',
+        'agentDoSomethingLight',
         {
-          worldId: game.worldId,
+          worldId:
+            game.worldId,
 
-          player: player.serialize(),
+          playerId:
+            player.id,
 
-          otherFreePlayers: [
-            ...game.world.players.values(),
-          ]
-            .filter(
-              (p) => p.id !== player.id,
-            )
-            .filter(
-              (p) =>
-                ![
-                  ...game.world.conversations.values(),
-                ].find((c) =>
-                  c.participants.has(p.id),
-                ),
-            )
-            .map((p) => p.serialize()),
-
-          agent: this.serialize(),
-
-          map: game.worldMap.serialize(),
+          agentId:
+            this.id,
         },
       );
 
@@ -188,10 +221,17 @@ export class Agent {
         now,
         'agentRememberConversation',
         {
-          worldId: game.worldId,
-          playerId: this.playerId,
-          agentId: this.id,
-          conversationId: this.toRemember,
+          worldId:
+            game.worldId,
+
+          playerId:
+            this.playerId,
+
+          agentId:
+            this.id,
+
+          conversationId:
+            this.toRemember,
         },
       );
 
@@ -204,14 +244,18 @@ export class Agent {
     // NPC НАХОДИТСЯ В РАЗГОВОРЕ
     // --------------------------------------------------
 
-    if (conversation && member) {
+    if (
+      conversation &&
+      member
+    ) {
       const [
         otherPlayerId,
         otherMember,
       ] = [
         ...conversation.participants.entries(),
       ].find(
-        ([id]) => id !== player.id,
+        ([id]) =>
+          id !== player.id,
       )!;
 
       void otherMember;
@@ -226,10 +270,14 @@ export class Agent {
       // ------------------------------------------------
 
       if (
-        member.status.kind === 'invited'
+        member.status.kind ===
+        'invited'
       ) {
-        // Приглашение человека принимается всегда.
-        // Приглашение NPC — с заданной вероятностью.
+        // Приглашение человека
+        // принимается всегда.
+        //
+        // Приглашение NPC —
+        // с заданной вероятностью.
         if (
           otherPlayer.human ||
           Math.random() <
@@ -245,8 +293,11 @@ export class Agent {
           );
 
           // Останавливаем старое движение,
-          // чтобы NPC пошёл к собеседнику.
-          if (player.pathfinding) {
+          // чтобы NPC пошёл
+          // к собеседнику.
+          if (
+            player.pathfinding
+          ) {
             delete player.pathfinding;
           }
         } else {
@@ -272,7 +323,8 @@ export class Agent {
         member.status.kind ===
         'walkingOver'
       ) {
-        // Если слишком долго не получается встретиться,
+        // Если слишком долго
+        // не получается встретиться —
         // отменяем разговор.
         if (
           member.invited +
@@ -307,8 +359,11 @@ export class Agent {
         }
 
         // Если ещё не движемся —
-        // начинаем идти к собеседнику.
-        if (!player.pathfinding) {
+        // начинаем идти
+        // к собеседнику.
+        if (
+          !player.pathfinding
+        ) {
           let destination;
 
           if (
@@ -317,22 +372,30 @@ export class Agent {
           ) {
             destination = {
               x: Math.floor(
-                otherPlayer.position.x,
+                otherPlayer
+                  .position.x,
               ),
+
               y: Math.floor(
-                otherPlayer.position.y,
+                otherPlayer
+                  .position.y,
               ),
             };
           } else {
             destination = {
               x: Math.floor(
-                (player.position.x +
-                  otherPlayer.position.x) /
+                (
+                  player.position.x +
+                  otherPlayer.position.x
+                ) /
                   2,
               ),
+
               y: Math.floor(
-                (player.position.y +
-                  otherPlayer.position.y) /
+                (
+                  player.position.y +
+                  otherPlayer.position.y
+                ) /
                   2,
               ),
             };
@@ -365,27 +428,25 @@ export class Agent {
         const started =
           member.status.started;
 
-        // =================================================
+        // ===============================================
         // ВАЖНЫЙ FIX:
         //
-        // раньше после достижения лимита разговора
-        // NPC сначала пытался генерировать через AI
-        // "последнюю реплику".
+        // после достижения лимита
+        // разговор завершается сразу.
         //
-        // Если AI зависал или тормозил,
-        // оба NPC продолжали стоять друг возле друга.
-        //
-        // Теперь после лимита разговор
-        // завершается НЕМЕДЛЕННО.
-        // =================================================
+        // Мы не ждём дополнительную
+        // AI-реплику.
+        // ===============================================
 
         const tooLongDeadline =
           started +
           MAX_CONVERSATION_DURATION;
 
         if (
-          tooLongDeadline < now ||
-          conversation.numMessages >=
+          tooLongDeadline <
+            now ||
+          conversation
+            .numMessages >=
             MAX_CONVERSATION_MESSAGES
         ) {
           console.log(
@@ -401,11 +462,14 @@ export class Agent {
           return;
         }
 
-        // Если другой персонаж сейчас печатает,
+        // Если другой персонаж
+        // сейчас печатает —
         // ждём его.
         if (
           conversation.isTyping &&
-          conversation.isTyping.playerId !==
+          conversation
+            .isTyping
+            .playerId !==
             player.id
         ) {
           return;
@@ -415,7 +479,9 @@ export class Agent {
         // ПЕРВОЕ СООБЩЕНИЕ
         // ------------------------------------------------
 
-        if (!conversation.lastMessage) {
+        if (
+          !conversation.lastMessage
+        ) {
           const isInitiator =
             conversation.creator ===
             player.id;
@@ -426,7 +492,8 @@ export class Agent {
 
           if (
             isInitiator ||
-            awkwardDeadline < now
+            awkwardDeadline <
+              now
           ) {
             console.log(
               `${player.id} initiating conversation with ${otherPlayer.id}.`,
@@ -463,7 +530,8 @@ export class Agent {
 
                 messageUuid,
 
-                type: 'start',
+                type:
+                  'start',
               },
             );
 
@@ -474,15 +542,19 @@ export class Agent {
         }
 
         // ------------------------------------------------
-        // ЕСЛИ ПОСЛЕДНЕЕ СООБЩЕНИЕ НАПИСАЛ ЭТОТ NPC
+        // ЕСЛИ ПОСЛЕДНЕЕ СООБЩЕНИЕ
+        // НАПИСАЛ ЭТОТ NPC
         // ------------------------------------------------
 
         if (
-          conversation.lastMessage
-            .author === player.id
+          conversation
+            .lastMessage
+            .author ===
+          player.id
         ) {
           const awkwardDeadline =
-            conversation.lastMessage
+            conversation
+              .lastMessage
               .timestamp +
             AWKWARD_CONVERSATION_TIMEOUT;
 
@@ -495,11 +567,12 @@ export class Agent {
         }
 
         // ------------------------------------------------
-        // НЕБОЛЬШАЯ ПАУЗА ПЕРЕД ОТВЕТОМ
+        // ПАУЗА ПЕРЕД ОТВЕТОМ
         // ------------------------------------------------
 
         const messageCooldown =
-          conversation.lastMessage
+          conversation
+            .lastMessage
             .timestamp +
           MESSAGE_COOLDOWN;
 
@@ -549,7 +622,8 @@ export class Agent {
 
             messageUuid,
 
-            type: 'continue',
+            type:
+              'continue',
           },
         );
 
@@ -582,36 +656,84 @@ export class Agent {
     }
 
     const operationId =
-      game.allocId('operations');
+      game.allocId(
+        'operations',
+      );
+
+    const operationArgs = {
+      operationId,
+      ...args,
+    };
+
+    // --------------------------------------------------
+    // ЗАЩИТА ОТ БОЛЬШИХ PAYLOAD
+    // --------------------------------------------------
+    //
+    // Если кто-нибудь в будущем снова
+    // попробует передать сюда карту,
+    // весь мир или большой массив NPC,
+    // операция будет остановлена сразу.
+    //
+    // Лучше получить явную ошибку,
+    // чем снова раздуть _scheduled_functions.
+    // --------------------------------------------------
+
+    const serializedOperation =
+      JSON.stringify(
+        operationArgs,
+      );
+
+    if (
+      serializedOperation.length >
+      MAX_AGENT_OPERATION_PAYLOAD_SIZE
+    ) {
+      throw new Error(
+        `Agent operation ${String(
+          name,
+        )} payload is too large: ${serializedOperation.length} > ${MAX_AGENT_OPERATION_PAYLOAD_SIZE}`,
+      );
+    }
 
     console.log(
-      `Agent ${this.id} starting operation ${name} (${operationId})`,
+      `Agent ${this.id} starting operation ${String(
+        name,
+      )} (${operationId})`,
     );
 
     game.scheduleOperation(
-      name,
-      {
-        operationId,
-        ...args,
-      } as any,
+      String(name),
+      operationArgs,
     );
 
     this.inProgressOperation = {
-      name,
+      name:
+        String(name),
+
       operationId,
-      started: now,
+
+      started:
+        now,
     };
   }
 
-  serialize(): SerializedAgent {
+  serialize():
+    SerializedAgent {
     return {
-      id: this.id,
-      playerId: this.playerId,
-      toRemember: this.toRemember,
+      id:
+        this.id,
+
+      playerId:
+        this.playerId,
+
+      toRemember:
+        this.toRemember,
+
       lastConversation:
         this.lastConversation,
+
       lastInviteAttempt:
         this.lastInviteAttempt,
+
       inProgressOperation:
         this.inProgressOperation,
     };
@@ -619,26 +741,38 @@ export class Agent {
 }
 
 export const serializedAgent = {
-  id: agentId,
+  id:
+    agentId,
 
-  playerId: playerId,
+  playerId:
+    playerId,
 
-  toRemember: v.optional(
-    conversationId,
-  ),
+  toRemember:
+    v.optional(
+      conversationId,
+    ),
 
   lastConversation:
-    v.optional(v.number()),
+    v.optional(
+      v.number(),
+    ),
 
   lastInviteAttempt:
-    v.optional(v.number()),
+    v.optional(
+      v.number(),
+    ),
 
   inProgressOperation:
     v.optional(
       v.object({
-        name: v.string(),
-        operationId: v.string(),
-        started: v.number(),
+        name:
+          v.string(),
+
+        operationId:
+          v.string(),
+
+        started:
+          v.number(),
       }),
     ),
 };
@@ -652,56 +786,144 @@ type AgentOperations =
   typeof internal.aiTown
     .agentOperations;
 
+// ======================================================
+// ЗАПУСК АГЕНТСКИХ ОПЕРАЦИЙ
+// ======================================================
+//
+// Здесь намеренно НЕТ универсального:
+//
+// scheduler.runAfter(..., args)
+//
+// Каждый тип операции имеет
+// отдельный явно заданный маленький payload.
+//
+// Это защищает нас от случайной
+// отправки огромного объекта в scheduler.
+// ======================================================
+
 export async function runAgentOperation(
   ctx: MutationCtx,
   operation: string,
   args: any,
 ) {
-  let reference;
-
   switch (operation) {
+    // --------------------------------------------------
+    // ЗАПОМНИТЬ РАЗГОВОР
+    // --------------------------------------------------
+
     case 'agentRememberConversation':
-      reference =
-        internal.aiTown.agentOperations
-          .agentRememberConversation;
-      break;
+      await ctx.scheduler.runAfter(
+        0,
+        internal.aiTown
+          .agentOperations
+          .agentRememberConversation,
+        {
+          worldId:
+            args.worldId,
+
+          playerId:
+            args.playerId,
+
+          agentId:
+            args.agentId,
+
+          conversationId:
+            args.conversationId,
+
+          operationId:
+            args.operationId,
+        },
+      );
+
+      return;
+
+    // --------------------------------------------------
+    // СГЕНЕРИРОВАТЬ СООБЩЕНИЕ
+    // --------------------------------------------------
 
     case 'agentGenerateMessage':
-      reference =
-        internal.aiTown.agentOperations
-          .agentGenerateMessage;
-      break;
+      await ctx.scheduler.runAfter(
+        0,
+        internal.aiTown
+          .agentOperations
+          .agentGenerateMessage,
+        {
+          worldId:
+            args.worldId,
 
-    case 'agentDoSomething':
-  await ctx.scheduler.runAfter(
-    0,
-    internal.aiTown.agentOperations.agentDoSomethingLight,
-    {
-      worldId: args.worldId,
-      playerId: args.player.id,
-      agentId: args.agent.id,
-      operationId: args.operationId,
-    },
-  );
-  return;
+          playerId:
+            args.playerId,
+
+          agentId:
+            args.agentId,
+
+          conversationId:
+            args.conversationId,
+
+          otherPlayerId:
+            args.otherPlayerId,
+
+          operationId:
+            args.operationId,
+
+          type:
+            args.type,
+
+          messageUuid:
+            args.messageUuid,
+        },
+      );
+
+      return;
+
+    // --------------------------------------------------
+    // ОБЫЧНЫЙ ХОД NPC
+    // --------------------------------------------------
+    //
+    // В scheduler уходят только ID.
+    //
+    // Игрок, агент, карта и остальные NPC
+    // будут загружены уже внутри
+    // agentDoSomethingLight.
+    // --------------------------------------------------
+
+    case 'agentDoSomethingLight':
+      await ctx.scheduler.runAfter(
+        0,
+        internal.aiTown
+          .agentOperations
+          .agentDoSomethingLight,
+        {
+          worldId:
+            args.worldId,
+
+          playerId:
+            args.playerId,
+
+          agentId:
+            args.agentId,
+
+          operationId:
+            args.operationId,
+        },
+      );
+
+      return;
 
     default:
       throw new Error(
         `Unknown operation: ${operation}`,
       );
   }
-
-  await ctx.scheduler.runAfter(
-    0,
-    reference,
-    args,
-  );
 }
 
 export const agentSendMessage =
   internalMutation({
     args: {
-      worldId: v.id('worlds'),
+      worldId:
+        v.id(
+          'worlds',
+        ),
 
       conversationId,
 
@@ -709,14 +931,17 @@ export const agentSendMessage =
 
       playerId,
 
-      text: v.string(),
+      text:
+        v.string(),
 
-      messageUuid: v.string(),
+      messageUuid:
+        v.string(),
 
       leaveConversation:
         v.boolean(),
 
-      operationId: v.string(),
+      operationId:
+        v.string(),
     },
 
     handler: async (
@@ -732,7 +957,8 @@ export const agentSendMessage =
           author:
             args.playerId,
 
-          text: args.text,
+          text:
+            args.text,
 
           messageUuid:
             args.messageUuid,
@@ -769,13 +995,18 @@ export const agentSendMessage =
 export const findConversationCandidate =
   internalQuery({
     args: {
-      now: v.number(),
+      now:
+        v.number(),
 
-      worldId: v.id('worlds'),
+      worldId:
+        v.id(
+          'worlds',
+        ),
 
-      player: v.object(
-        serializedPlayer,
-      ),
+      player:
+        v.object(
+          serializedPlayer,
+        ),
 
       otherFreePlayers:
         v.array(
@@ -794,18 +1025,25 @@ export const findConversationCandidate =
         otherFreePlayers,
       },
     ) => {
-      const { position } = player;
+      const {
+        position,
+      } = player;
 
       const candidates: {
-        id: GameId<'players'>;
-        score: number;
+        id:
+          GameId<'players'>;
+
+        score:
+          number;
       }[] = [];
 
       // Загружаем историю отношений
       // текущего NPC ко всем остальным.
       const relationshipMemories =
         await ctx.db
-          .query('memories')
+          .query(
+            'memories',
+          )
           .withIndex(
             'playerId_type',
             (q) =>
@@ -819,15 +1057,18 @@ export const findConversationCandidate =
                   'relationship',
                 ),
           )
-          .order('desc')
+          .order(
+            'desc',
+          )
           .collect();
 
       for (
         const otherPlayer of
-        otherFreePlayers
+          otherFreePlayers
       ) {
-        // Не позволяем NPC снова
-        // моментально идти к тому же человеку.
+        // Не позволяем NPC
+        // моментально снова идти
+        // к тому же человеку.
         const lastMember =
           await ctx.db
             .query(
@@ -850,7 +1091,9 @@ export const findConversationCandidate =
                     otherPlayer.id,
                   ),
             )
-            .order('desc')
+            .order(
+              'desc',
+            )
             .first();
 
         if (
@@ -862,8 +1105,9 @@ export const findConversationCandidate =
           continue;
         }
 
-        // Берём самое свежее отношение
-        // именно к этому персонажу.
+        // Берём самое свежее
+        // отношение именно
+        // к этому персонажу.
         const relationship =
           relationshipMemories.find(
             (memory) =>
@@ -873,10 +1117,17 @@ export const findConversationCandidate =
                 otherPlayer.id,
           );
 
-        let trust = 0;
-        let affinity = 0;
-        let respect = 0;
-        let conflict = 0;
+        let trust =
+          0;
+
+        let affinity =
+          0;
+
+        let respect =
+          0;
+
+        let conflict =
+          0;
 
         if (
           relationship &&
@@ -884,42 +1135,48 @@ export const findConversationCandidate =
             'relationship'
         ) {
           trust =
-            relationship.data.trust;
+            relationship
+              .data
+              .trust;
 
           affinity =
-            relationship.data.affinity;
+            relationship
+              .data
+              .affinity;
 
           respect =
-            relationship.data.respect;
+            relationship
+              .data
+              .respect;
 
           conflict =
-            relationship.data.conflict;
+            relationship
+              .data
+              .conflict;
         }
 
         // -------------------------------------------------
         // СИЛЬНАЯ НЕПРИЯЗНЬ / КОНФЛИКТ
         // -------------------------------------------------
-        //
-        // NPC не обязан всегда избегать врага:
-        // иначе конфликт никогда не сможет развиваться.
-        //
-        // Но при очень плохих отношениях
-        // большая часть добровольных встреч
-        // будет отсеиваться.
-        // -------------------------------------------------
 
         if (
-          conflict >= 75 &&
-          affinity <= -50 &&
-          Math.random() < 0.75
+          conflict >=
+            75 &&
+          affinity <=
+            -50 &&
+          Math.random() <
+            0.75
         ) {
           continue;
         }
 
         if (
-          conflict >= 50 &&
-          affinity <= -25 &&
-          Math.random() < 0.4
+          conflict >=
+            50 &&
+          affinity <=
+            -25 &&
+          Math.random() <
+            0.4
         ) {
           continue;
         }
@@ -933,25 +1190,24 @@ export const findConversationCandidate =
         // -------------------------------------------------
         // СОЦИАЛЬНОЕ ПРИТЯЖЕНИЕ
         // -------------------------------------------------
-        //
-        // Чем выше affinity/trust/respect,
-        // тем "ближе" человек воспринимается
-        // при выборе собеседника.
-        //
-        // Конфликт делает его социально дальше.
-        // -------------------------------------------------
 
         const socialPull =
-          affinity * 0.18 +
-          trust * 0.1 +
-          respect * 0.05 -
-          conflict * 0.22;
+          affinity *
+            0.18 +
+          trust *
+            0.1 +
+          respect *
+            0.05 -
+          conflict *
+            0.22;
 
         // Немного случайности,
-        // чтобы NPC не выбирал одного и того же
-        // человека математически каждый раз.
+        // чтобы NPC не выбирал
+        // одного и того же человека
+        // математически каждый раз.
         const randomness =
-          Math.random() * 10;
+          Math.random() *
+          10;
 
         // Чем МЕНЬШЕ score,
         // тем привлекательнее кандидат.
@@ -969,8 +1225,12 @@ export const findConversationCandidate =
       }
 
       candidates.sort(
-        (a, b) =>
-          a.score - b.score,
+        (
+          a,
+          b,
+        ) =>
+          a.score -
+          b.score,
       );
 
       return candidates[0]?.id;
